@@ -1,0 +1,43 @@
+{
+  "name": "maxide",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MaxIDE — AI-Native Software Engineering Studio with Unlimited Local & Cloud AI Providers",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/server/index.ts",
+    "test": "tsx src/tests/acceptance.test.ts",
+    "test:e2e": "tsx src/tests/ide_e2e.test.ts",
+    "test:all": "tsx src/tests/acceptance.test.ts && tsx src/tests/ide_e2e.test.ts",
+    "test:audit": "tsx src/tests/real_world_audit.ts",
+    "test:final": "tsx src/tests/final_real_verification.ts",
+    "test:simulate": "tsx src/tests/ui_user_simulation.ts",
+    "test:agentic": "tsx src/tests/final_agentic_execution.test.ts",
+    "test:formats": "tsx src/tests/universal_formats.test.ts"
+  },
+  "keywords": [
+    "maxide",
+    "ai-ide",
+    "antigravity",
+    "ollama",
+    "local-ai",
+    "agent",
+    "software-engineering"
+  ],
+  "author": "Burra Naveen Suraj",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.7",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}

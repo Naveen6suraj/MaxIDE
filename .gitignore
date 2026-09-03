@@ -1,0 +1,45 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+dist/
+build/
+
+# Environment and sensitive keys
+.env
+.env.local
+.env.*.local
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor temporary directories
+.vscode/
+.idea/
+.orbit/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary test workspaces, test outputs, and logs
+test-*
+test-workspace*
+test-agentic-ws*
+test-real-ollama-ws*
+test-final-e2e-project*
+workspace-test*
+temp/
+tmp/
+*.log
+
+# Generated test screenshots
+*.png
+.tempmediaStorage/
+.user_uploaded/

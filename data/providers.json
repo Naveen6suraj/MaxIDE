@@ -1,0 +1,41 @@
+[
+  {
+    "id": "ollama-local",
+    "name": "Ollama Local Engine",
+    "type": "local",
+    "apiType": "ollama",
+    "baseUrl": "http://localhost:11434",
+    "defaultModel": "gemma4:31b-cloud",
+    "isEnabled": true
+  },
+  {
+    "id": "gemini-cloud",
+    "name": "Google Gemini",
+    "type": "cloud",
+    "apiType": "gemini",
+    "apiKey": "",
+    "defaultModel": "gemini-2.5-flash",
+    "isEnabled": false,
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta"
+  },
+  {
+    "id": "groq-lpu",
+    "name": "Groq Cloud LPU",
+    "type": "cloud",
+    "apiType": "groq",
+    "apiKey": "",
+    "defaultModel": "llama-3.3-70b-versatile",
+    "isEnabled": false,
+    "baseUrl": "https://api.groq.com/openai/v1"
+  },
+  {
+    "id": "custom-openai",
+    "name": "Custom OpenAI-Compatible (LM Studio/vLLM/NIM)",
+    "type": "local",
+    "apiType": "openai_compatible",
+    "baseUrl": "http://localhost:1234/v1",
+    "apiKey": "",
+    "defaultModel": "nemotron",
+    "isEnabled": false
+  }
+]
