@@ -266,10 +266,20 @@
         <div id="editor-tab-bar" class="flex items-center gap-1">
           <!-- Populated from state.openTabs -->
         </div>
-        <!-- Diff Toggle Pill (Visible when diff available) -->
-        <div id="diff-mode-toggle-pill" class="hidden items-center gap-1.5 bg-amber-950/40 border border-amber-500/40 px-2 py-0.5 rounded text-[11px] text-amber-300">
-          <span>AI Changes Pending</span>
-          <button onclick="toggleDiffView(true)" class="font-bold underline hover:text-white">Review Diff</button>
+        <!-- Live Preview & Diff Quick Actions -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <a href="/workspace-preview/index.html" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] shadow-sm transition no-underline" title="Open live project website in full browser tab">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            <span>Live Website ↗</span>
+          </a>
+          <button onclick="switchBottomTab('browser'); reloadBrowserPreview();" class="flex items-center gap-1 px-2 py-0.5 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-400 text-[11px] font-medium transition" title="Show live app preview in bottom panel">
+            <span>📱 Preview</span>
+          </button>
+          <!-- Diff Toggle Pill (Visible when diff available) -->
+          <div id="diff-mode-toggle-pill" class="hidden items-center gap-1.5 bg-amber-950/40 border border-amber-500/40 px-2 py-0.5 rounded text-[11px] text-amber-300">
+            <span>AI Changes Pending</span>
+            <button onclick="toggleDiffView(true)" class="font-bold underline hover:text-white">Review Diff</button>
+          </div>
         </div>
       </div>
 
@@ -1576,9 +1586,9 @@
         if (outcome.openPreview || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
           const previewTarget = outcome.openPreview || `/workspace-preview/${outcome.openFile}`;
           actionPills.push(`
-            <button onclick="openLivePreviewInNewTab()" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-md">
-              🌐 Open Fullscreen in New Tab
-            </button>
+            <a href="${previewTarget}" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-md no-underline">
+              🌐 Open Website in New Tab ↗
+            </a>
             <button onclick="switchBottomTab('browser'); document.getElementById('browser-test-url').value = '${previewTarget}'; reloadBrowserPreview();" class="px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
               📱 View Embedded Preview
             </button>
@@ -1654,12 +1664,8 @@
           const urlInput = document.getElementById('browser-test-url');
           if (urlInput) urlInput.value = outcome.openPreview;
           const iframe = document.getElementById('browser-preview-iframe');
-          if (iframe) iframe.src = outcome.openPreview;
-
-          // If the user's prompt specifically asked to "open" or "see" or "view" the website, pop open fullscreen tab:
-          const lowerPrompt = (task || '').toLowerCase();
-          if (lowerPrompt.includes('open') && (lowerPrompt.includes('see') || lowerPrompt.includes('it') || lowerPrompt.includes('browser') || lowerPrompt.includes('tab') || lowerPrompt.includes('portfolio') || lowerPrompt.includes('site') || lowerPrompt.includes('app'))) {
-            openLivePreviewInNewTab();
+          if (iframe) {
+            iframe.src = outcome.openPreview + (outcome.openPreview.includes('?') ? '&' : '?') + 't=' + Date.now();
           }
         }
         if (outcome.openTerminal) {

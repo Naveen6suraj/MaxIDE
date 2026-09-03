@@ -422,14 +422,12 @@ export class AgentEngine {
       }
     }
 
-    // Default to index.html preview if index.html exists in workspace and task related to web/app/portfolio
+    // Default to index.html preview if index.html exists in workspace
     const rootPath = this.workspaceManager.getRootPath();
     const lowerTask = taskPrompt.toLowerCase();
-    if (!detectedOpenFile && fs.existsSync(path.join(rootPath, 'index.html'))) {
-      if (lowerTask.includes('web') || lowerTask.includes('portfolio') || lowerTask.includes('html') || lowerTask.includes('site') || lowerTask.includes('app') || lowerTask.includes('page')) {
-        detectedOpenFile = 'index.html';
-        detectedOpenPreview = '/workspace-preview/index.html';
-      }
+    if (!detectedOpenPreview && fs.existsSync(path.join(rootPath, 'index.html'))) {
+      detectedOpenPreview = '/workspace-preview/index.html';
+      if (!detectedOpenFile) detectedOpenFile = 'index.html';
     }
 
     if (!finalAnswer || finalAnswer.trim() === 'Task completed successfully.') {
@@ -573,8 +571,12 @@ export class AgentEngine {
     });
 
     // 1. Direct Workbench Navigation / File Open Actions
-    // e.g. "open the porfolio then", "open index.html", "show the preview", "preview app", "launch browser"
-    const isWorkbenchAction = /^(?:open|view|show|display|preview|launch)\b/i.test(lower) && !hasExecutionAction;
+    // Matches: "open ...", "can you open ...", "please show ...", "open the website", "see it", etc.
+    const isWorkbenchAction = (
+      /^(?:can you\s+|please\s+|could you\s+)?(?:open|view|show|display|preview|launch)\b/i.test(lower) ||
+      /\b(?:open|show|preview|view|launch)\s+(?:the\s+)?(?:website|site|portfolio|page|app|preview|browser|index\.html|html)\b/i.test(lower) ||
+      /\b(?:open|see)\s+it\b/i.test(lower)
+    ) && !hasExecutionAction;
     if (isWorkbenchAction) {
       this.logActivity('thought', `Classified intent as direct workbench action: "${trimmed}"`);
       const root = this.workspaceManager.getRootPath();
