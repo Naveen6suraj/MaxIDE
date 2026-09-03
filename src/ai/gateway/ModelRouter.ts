@@ -88,7 +88,7 @@ export class ModelRouter {
     const isLocalOnly = this.privacyManager.getMode() === 'local';
 
     // 1. If explicit user preference is given and satisfies capabilities & privacy
-    if (requirements.userPreferredModelId) {
+    if (requirements.userPreferredModelId && requirements.userPreferredModelId !== 'auto') {
       const targetModel = this.modelRegistry.getModel(requirements.userPreferredModelId);
       if (targetModel) {
         const provider = this.providerRegistry.getProvider(targetModel.providerId);
@@ -128,7 +128,7 @@ export class ModelRouter {
       );
     }
 
-    // 3. Score candidates based on speed, context window, and provider latency
+    // 3. Score candidates based on speed, context window, specialized architecture, and provider latency
     let bestCandidate: RouteResolution | null = null;
     let highestScore = -Infinity;
 
@@ -155,15 +155,36 @@ export class ModelRouter {
       // Preference bonuses
       if (requirements.preferLocal && candidate.local) score += 25;
       if (requirements.preferSpeed && (provider.config.apiType === 'groq' || candidate.local)) score += 20;
-      if (requirements.requiresReasoning && candidate.capabilities.reasoning) score += 25;
+
+      // Specialized architecture bonuses for task fit
+      if (requirements.requiresReasoning) {
+        if (candidate.id.includes('nemotron') || candidate.id.includes('minimax') || candidate.capabilities.reasoning) {
+          score += 35;
+        }
+      }
+
+      if (requirements.requiresCodeGeneration || requirements.requiresToolCalling) {
+        if (candidate.id.includes('qwen') || candidate.id.includes('coder') || candidate.id.includes('gemma4')) {
+          score += 30;
+        }
+      }
 
       if (score > highestScore) {
         highestScore = score;
+        let specializationRationale = 'Auto-routed based on capabilities and latency';
+        if (requirements.requiresReasoning && (candidate.id.includes('nemotron') || candidate.id.includes('minimax'))) {
+          specializationRationale = `Auto-selected ${candidate.name} (Specialized for Deep Reasoning & Logic)`;
+        } else if ((requirements.requiresCodeGeneration || requirements.requiresToolCalling) && (candidate.id.includes('qwen') || candidate.id.includes('gemma4'))) {
+          specializationRationale = `Auto-selected ${candidate.name} (Specialized for Code & Tool Execution)`;
+        } else if (requirements.preferSpeed) {
+          specializationRationale = `Auto-selected ${candidate.name} (Optimized for Fast Interactive Response)`;
+        }
+
         bestCandidate = {
           provider,
           model: candidate,
           score,
-          rationale: `Auto-routed based on capabilities and latency (${provider.name} / ${candidate.name})`,
+          rationale: `${specializationRationale} via ${provider.name}`,
         };
       }
     }

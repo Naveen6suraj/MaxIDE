@@ -1516,11 +1516,12 @@
       feed.scrollTop = feed.scrollHeight;
       input.value = '';
 
-      // Check if chosen model has no API key
-      const chosenModel = state.models.find(m => m.id === modelId);
-      const chosenProv = chosenModel ? state.providers.find(p => p.id === chosenModel.providerId) : null;
-      if (chosenProv && chosenProv.type === 'cloud' && !chosenProv.apiKey) {
-        setAgentStateBadge('Idle');
+      // Check if chosen model has no API key (skip if auto-mode is selected)
+      if (modelId && modelId !== 'auto') {
+        const chosenModel = state.models.find(m => m.id === modelId);
+        const chosenProv = chosenModel ? state.providers.find(p => p.id === chosenModel.providerId) : null;
+        if (chosenProv && chosenProv.type === 'cloud' && !chosenProv.apiKey) {
+          setAgentStateBadge('Idle');
         const localFallback = state.models.find(m => {
           const prov = state.providers.find(p => p.id === m.providerId);
           return prov && prov.type === 'local';
@@ -1551,6 +1552,7 @@
         btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
         return;
       }
+    }
 
       setAgentStateBadge('Running');
 
@@ -1614,6 +1616,13 @@
           </div>
         `;
 
+        const autoModelBadge = outcome.autoModel ? `
+          <div class="px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-[10px] text-cyan-300 font-mono flex items-center justify-between shadow-sm mb-2">
+            <span class="flex items-center gap-1.5">⚡ Auto-Selected: <strong>${outcome.autoModel.modelName}</strong></span>
+            <span class="text-slate-400 font-sans">• ${outcome.autoModel.category}</span>
+          </div>
+        ` : '';
+
         if (outcome.actionType === 'conversation' || outcome.actionType === 'workbench_action') {
           cardHtml = `
             <div class="p-3.5 rounded-xl bg-ide-surface border border-cyan-500/30 space-y-2 shadow-lg">
@@ -1624,6 +1633,7 @@
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">${outcome.actionType === 'workbench_action' ? 'Workbench Action' : 'Assistant'}</span>
               </div>
+              ${autoModelBadge}
               <div class="text-xs">
                 ${formatMarkdownText(outcome.finalAnswer || outcome.summary)}
               </div>
@@ -1642,6 +1652,7 @@
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">${outcome.stepsCompleted || 1} steps</span>
               </div>
+              ${autoModelBadge}
               <div class="text-xs">
                 ${formatMarkdownText(outcome.finalAnswer || outcome.summary || outcome.error)}
               </div>
@@ -1913,6 +1924,14 @@
 
       const select = document.getElementById('header-model-select');
       select.innerHTML = '';
+
+      // Auto-Selection Option for Best Free Model
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = '⚡ Auto (Best Free Model for Task)';
+      if (state.activeModelId === 'auto' || !state.activeModelId) autoOpt.selected = true;
+      select.appendChild(autoOpt);
+
       state.models.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;

@@ -61,6 +61,13 @@ export interface AgentStep {
   plan?: AgentPlan;
 }
 
+export interface AutoModelMetadata {
+  modelId: string;
+  modelName: string;
+  category: 'Code & Agentic Tasks' | 'Reasoning & Logic' | 'Explanation & Conversation' | 'General';
+  rationale: string;
+}
+
 export interface AgentTaskResult {
   success: boolean;
   task: string;
@@ -72,6 +79,7 @@ export interface AgentTaskResult {
   error?: string;
   openFile?: string;
   openPreview?: string;
+  autoModel?: AutoModelMetadata;
 }
 
 export class AgentEngine {
@@ -202,6 +210,88 @@ export class AgentEngine {
   }
 
   /**
+   * Intelligently selects the best free / local model based on prompt characteristics:
+   * - Deep Reasoning / Logic / Math / Algorithms -> Nemotron / MiniMax
+   * - Code Synthesis / Multi-file / Tool Execution -> Qwen / Gemma4
+   * - Fast Conversation / Concept Explanation -> Gemma4 / Llama3
+   */
+  public selectBestFreeModelForPrompt(prompt: string): AutoModelMetadata {
+    const lower = prompt.toLowerCase();
+    const allModels = this.gateway.modelRegistry.getAllModels();
+
+    // Available free models (local or cloud models with active credentials)
+    const availableFreeModels = allModels.filter((m) => {
+      const prov = this.gateway.providerRegistry.getProvider(m.providerId);
+      if (!prov || !prov.isEnabled) return false;
+      if (prov.type === 'local') return true;
+      return Boolean(prov.config.apiKey);
+    });
+
+    if (availableFreeModels.length === 0) {
+      return {
+        modelId: 'gemma4:31b-cloud',
+        modelName: 'gemma4:31b-cloud',
+        category: 'General',
+        rationale: 'Default local model',
+      };
+    }
+
+    // 1. Conversational explanation / concept inquiry (e.g. "Explain how React...", "What is an API gateway?")
+    const isExplanation = /^(explain|what\s+is|what\s+are|how\s+does|why\s+is|tell\s+me\s+about|compare|help\s+me\s+understand|describe)\b/i.test(lower) &&
+      !/(build|create|write\s+code|implement|generate\s+code|run|execute|fix|refactor|scaffold)/i.test(lower);
+
+    if (isExplanation) {
+      const fastChatModel = availableFreeModels.find((m) => m.id.includes('gemma4') || m.id.includes('llama3')) || availableFreeModels[0];
+      return {
+        modelId: fastChatModel.id,
+        modelName: fastChatModel.name,
+        category: 'Explanation & Conversation',
+        rationale: 'Optimized for articulate, responsive conceptual explanations',
+      };
+    }
+
+    // 2. Deep Reasoning, Math, Logic, Algorithms, Debugging root cause
+    const isReasoning = /(algorithm|calculate|math|logic|why does|diagnose|root cause|complex|proof|optimize time complexity|big o|benchmark|analyze architecture)/i.test(lower);
+    if (isReasoning) {
+      const reasoningModel = availableFreeModels.find((m) => m.id.includes('nemotron') || m.id.includes('minimax')) ||
+        availableFreeModels.find((m) => m.capabilities.reasoning);
+      if (reasoningModel) {
+        return {
+          modelId: reasoningModel.id,
+          modelName: reasoningModel.name,
+          category: 'Reasoning & Logic',
+          rationale: 'Specialized for deep reasoning, logic, and analytical problem-solving',
+        };
+      }
+    }
+
+    // 3. Full-stack Coding, Project Building, Testing, Tool Execution
+    const isCodingTask = /(build|create|write|code|develop|function|node|python|react|html|css|javascript|typescript|install|terminal|script|api|component|refactor|debug|fix|portfolio|project)/i.test(lower);
+    if (isCodingTask) {
+      const coderModel = availableFreeModels.find((m) => m.id.includes('qwen') || m.id.includes('coder')) ||
+        availableFreeModels.find((m) => m.id.includes('gemma4')) ||
+        availableFreeModels.find((m) => m.capabilities.codeGeneration);
+      if (coderModel) {
+        return {
+          modelId: coderModel.id,
+          modelName: coderModel.name,
+          category: 'Code & Agentic Tasks',
+          rationale: 'Specialized for multi-file code synthesis and autonomous tool calling',
+        };
+      }
+    }
+
+    // 4. Default fallback: balanced model
+    const defaultModel = availableFreeModels.find((m) => m.id.includes('gemma4') || m.id.includes('qwen')) || availableFreeModels[0];
+    return {
+      modelId: defaultModel.id,
+      modelName: defaultModel.name,
+      category: 'General',
+      rationale: 'General purpose software engineering assistance',
+    };
+  }
+
+  /**
    * Run autonomous software engineering task.
    */
   public async runTask(
@@ -221,9 +311,17 @@ export class AgentEngine {
     }
     const maxSteps = options.maxSteps || (this.autonomyMode === 'AUTONOMOUS' ? 30 : 25);
     const maxErrorRetries = options.maxErrorRetries || 3;
-    const modelId = options.modelId || this.gateway.getActiveModelId();
 
-    this.logActivity('thought', `Started task (${this.autonomyMode} mode): "${taskPrompt}"`);
+    let modelId = options.modelId || this.gateway.getActiveModelId();
+    let autoModelMeta: AutoModelMetadata | undefined;
+
+    if (!modelId || modelId === 'auto') {
+      autoModelMeta = this.selectBestFreeModelForPrompt(taskPrompt);
+      modelId = autoModelMeta.modelId;
+      this.logActivity('thought', `🤖 Auto-Selected Model: "${autoModelMeta.modelName}" (${autoModelMeta.category}) — ${autoModelMeta.rationale}`);
+    }
+
+    this.logActivity('thought', `Started task (${this.autonomyMode} mode, Model: ${modelId}): "${taskPrompt}"`);
 
     // 1. Optional Automatic Pre-Task Checkpoint (Requirement 11)
     if (options.createPreCheckpoint !== false && this.autonomyMode !== 'ASK') {
@@ -489,6 +587,7 @@ export class AgentEngine {
       activityTimeline: this.timeline,
       openFile: detectedOpenFile,
       openPreview: detectedOpenPreview,
+      autoModel: autoModelMeta,
     };
   }
 
@@ -592,6 +691,7 @@ export class AgentEngine {
     openPreview?: string;
     openTerminal?: boolean;
     suggestedActions?: Array<{ label: string; prompt: string }>;
+    autoModel?: AutoModelMetadata;
   }> {
     const trimmed = userPrompt.trim();
     const lower = trimmed.toLowerCase();
@@ -675,6 +775,15 @@ export class AgentEngine {
 
     const isConversational = isPureExplanation || isPureGreeting;
 
+    let effectiveModelId = options.modelId || this.gateway.getActiveModelId();
+    let autoModelMeta: AutoModelMetadata | undefined;
+
+    if (!effectiveModelId || effectiveModelId === 'auto') {
+      autoModelMeta = this.selectBestFreeModelForPrompt(trimmed);
+      effectiveModelId = autoModelMeta.modelId;
+      this.logActivity('thought', `🤖 Auto-Selected Model: "${autoModelMeta.modelName}" (${autoModelMeta.category}) — ${autoModelMeta.rationale}`);
+    }
+
     if (isConversational) {
       this.logActivity('thought', `Classified intent as conversational inquiry: "${trimmed}"`);
 
@@ -694,7 +803,7 @@ export class AgentEngine {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: trimmed },
           ],
-          modelId: options.modelId || this.gateway.getActiveModelId(),
+          modelId: effectiveModelId,
         });
 
         responseText = resp.content;
@@ -705,12 +814,13 @@ export class AgentEngine {
       return {
         actionType: 'conversation',
         answer: responseText,
+        autoModel: autoModelMeta,
       };
     }
 
     // Otherwise, this is an actionable software engineering task!
     this.logActivity('thought', `Classified intent as autonomous agent engineering task: "${trimmed}"`);
-    const agentResult = await this.runTask(trimmed, options);
+    const agentResult = await this.runTask(trimmed, { ...options, modelId: effectiveModelId });
 
     return {
       actionType: 'agent_task',
@@ -718,6 +828,7 @@ export class AgentEngine {
       agentResult,
       openFile: agentResult.openFile,
       openPreview: agentResult.openPreview,
+      autoModel: autoModelMeta || agentResult.autoModel,
     };
   }
 }
