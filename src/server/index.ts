@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Main Server Entrypoint
  */
 
@@ -43,7 +43,7 @@ try {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Orbit App</title>
+  <title>MaxIDE App</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6">
@@ -88,14 +88,14 @@ console.log('Max App initialized successfully.');`;
 
     const starterReadme = `# My MaxIDE Project
 
-This project is running in **Orbit IDE** — an AI-native development environment.
+This project is running in **MaxIDE** — an AI-native development environment.
 
 ## Getting Started
 - \`index.html\`: The main web application layout.
 - \`app.js\`: Core application logic.
 - \`style.css\`: Application styles.
 
-Use the **Orbit Agent** in the right panel to implement new features, build backend APIs, analyze data, or run terminal commands.
+Use the **MaxIDE Agent** in the right panel to implement new features, build backend APIs, analyze data, or run terminal commands.
 `;
 
     fs.writeFileSync(path.join(workspaceDir, 'index.html'), starterHtml, 'utf8');

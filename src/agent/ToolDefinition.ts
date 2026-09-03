@@ -1,6 +1,6 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
- * Advanced Tool Framework with Schema Validation, Permission Tiers & Safety
+ * MaxIDE - Unlimited AI Provider Platform
+ * Universal Tool Registry & Schema Definitions
  */
 
 import { ToolDefinition } from '../ai/core/AIRequest.js';
@@ -53,8 +53,9 @@ export class ToolRegistry {
   public getTool(name: string): ExecutableTool | undefined {
     let tool = this.tools.get(name);
     if (!tool) {
-      // Universal tool name alias mapping: camelCase <-> snake_case
+      // Universal tool name alias mapping: camelCase <-> snake_case <-> canonical tools
       const aliases: Record<string, string> = {
+        // Filesystem
         'writeFile': 'create_file',
         'write_file': 'create_file',
         'createFile': 'create_file',
@@ -67,9 +68,84 @@ export class ToolRegistry {
         'listFiles': 'list_files',
         'list_files': 'list_files',
         'list_dir': 'list_files',
+        'deleteFile': 'delete_file',
+        'delete_file': 'delete_file',
+        'removeFile': 'delete_file',
+        'remove_file': 'delete_file',
+        'renameFile': 'rename_file',
+        'rename_file': 'rename_file',
+        'moveFile': 'rename_file',
+        'move_file': 'rename_file',
+        'createDirectory': 'create_directory',
+        'create_directory': 'create_directory',
+        'mkdir': 'create_directory',
+        'searchFiles': 'search_files',
+        'search_files': 'search_files',
+        'grep': 'search_files',
+
+        // Terminal & Processes
         'runCommand': 'run_command',
         'run_command': 'run_command',
         'executeCommand': 'run_command',
+        'startProcess': 'run_command',
+        'start_process': 'run_command',
+
+        // Development
+        'installDependencies': 'install_dependencies',
+        'install_dependencies': 'install_dependencies',
+        'npmInstall': 'install_dependencies',
+        'runTests': 'run_tests',
+        'run_tests': 'run_tests',
+        'test': 'run_tests',
+        'runBuild': 'run_build',
+        'run_build': 'run_build',
+        'build': 'run_build',
+        'runLint': 'run_linter',
+        'run_lint': 'run_linter',
+        'run_linter': 'run_linter',
+        'runTypecheck': 'run_typecheck',
+        'run_typecheck': 'run_typecheck',
+        'startDevServer': 'start_dev_server',
+        'start_dev_server': 'start_dev_server',
+        'stopDevServer': 'stop_dev_server',
+        'stop_dev_server': 'stop_dev_server',
+
+        // Git
+        'gitStatus': 'git_status',
+        'git_status': 'git_status',
+        'gitDiff': 'git_diff',
+        'git_diff': 'git_diff',
+        'gitLog': 'git_log',
+        'git_log': 'git_log',
+        'gitCommit': 'git_commit',
+        'git_commit': 'git_commit',
+
+        // Browser / Playwright
+        'browserNavigate': 'browser_navigate',
+        'browser_navigate': 'browser_navigate',
+        'navigate': 'browser_navigate',
+        'browserScreenshot': 'browser_screenshot',
+        'browser_screenshot': 'browser_screenshot',
+        'screenshot': 'browser_screenshot',
+        'browserInspectDom': 'browser_inspect_dom',
+        'browser_inspect_dom': 'browser_inspect_dom',
+        'inspectDom': 'browser_inspect_dom',
+        'browserClick': 'browser_click',
+        'browser_click': 'browser_click',
+        'click': 'browser_click',
+        'browserFill': 'browser_fill',
+        'browser_fill': 'browser_fill',
+        'fill': 'browser_fill',
+
+        // Checkpoints & UI Navigation
+        'createCheckpoint': 'create_checkpoint',
+        'create_checkpoint': 'create_checkpoint',
+        'restoreCheckpoint': 'restore_checkpoint',
+        'restore_checkpoint': 'restore_checkpoint',
+        'openFile': 'open_file',
+        'open_file': 'open_file',
+        'openPreview': 'open_preview',
+        'open_preview': 'open_preview',
       };
       const aliasTarget = aliases[name];
       if (aliasTarget) tool = this.tools.get(aliasTarget);

@@ -14,7 +14,8 @@
     "test:final": "tsx src/tests/final_real_verification.ts",
     "test:simulate": "tsx src/tests/ui_user_simulation.ts",
     "test:agentic": "tsx src/tests/final_agentic_execution.test.ts",
-    "test:formats": "tsx src/tests/universal_formats.test.ts"
+    "test:formats": "tsx src/tests/universal_formats.test.ts",
+    "test:ui": "tsx src/tests/real_ui_acceptance.test.ts"
   },
   "keywords": [
     "maxide",

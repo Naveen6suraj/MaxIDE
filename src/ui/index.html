@@ -1561,7 +1561,8 @@
           body: JSON.stringify({
             task: task || 'Process attached project materials and documents',
             modelId,
-            maxSteps: 8,
+            autonomyMode: state.autonomyMode || 'AUTONOMOUS',
+            maxSteps: 25,
             attachments: attachmentsToSend,
           }),
         });

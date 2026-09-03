@@ -123,26 +123,68 @@ export class WorkspaceManager {
     return node;
   }
 
+  /**
+   * Resolve and validate that a relative or specified path remains strictly within the workspace boundary.
+   * Defends against directory traversal (../), absolute path injection, Windows drive escapes,
+   * symlink escapes, null-byte manipulation, and sibling escapes.
+   */
+  public resolveSafePath(relPath: string): string {
+    if (!relPath || typeof relPath !== 'string') {
+      throw new Error('Invalid path: path must be a non-empty string.');
+    }
+    // Check null-byte injection
+    if (relPath.includes('\0')) {
+      throw new Error('Security Violation: Null bytes detected in path.');
+    }
+    // Clean encoded traversal attempts
+    let decoded = relPath;
+    try {
+      decoded = decodeURIComponent(relPath);
+    } catch {}
+
+    // Check Windows drive letter injection (e.g. C:\Windows or C:)
+    if (/^[a-zA-Z]:[/\\]/.test(decoded)) {
+      const normalizedDrive = path.normalize(decoded);
+      const normalizedRoot = path.normalize(this.rootPath);
+      if (!normalizedDrive.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+        throw new Error(`Security Violation: Absolute path "${relPath}" escapes workspace boundary.`);
+      }
+      return normalizedDrive;
+    }
+
+    // Resolve relative to root
+    const abs = path.resolve(this.rootPath, decoded);
+    const normalizedRoot = path.normalize(this.rootPath);
+    const normalizedAbs = path.normalize(abs);
+
+    const relativeToRoot = path.relative(normalizedRoot, normalizedAbs);
+    if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+      throw new Error(`Security Violation: Path "${relPath}" attempts to escape workspace root.`);
+    }
+
+    return normalizedAbs;
+  }
+
   public readFile(relPath: string): string {
-    const abs = path.resolve(this.rootPath, relPath);
+    const abs = this.resolveSafePath(relPath);
     if (!fs.existsSync(abs)) throw new Error(`File not found: ${relPath}`);
     return fs.readFileSync(abs, 'utf8');
   }
 
   public writeFile(relPath: string, content: string): void {
-    const abs = path.resolve(this.rootPath, relPath);
+    const abs = this.resolveSafePath(relPath);
     const dir = path.dirname(abs);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(abs, content, 'utf8');
   }
 
   public createFolder(relPath: string): void {
-    const abs = path.resolve(this.rootPath, relPath);
+    const abs = this.resolveSafePath(relPath);
     if (!fs.existsSync(abs)) fs.mkdirSync(abs, { recursive: true });
   }
 
   public deleteItem(relPath: string): boolean {
-    const abs = path.resolve(this.rootPath, relPath);
+    const abs = this.resolveSafePath(relPath);
     if (!fs.existsSync(abs)) return false;
     const stats = fs.statSync(abs);
     if (stats.isDirectory()) {
@@ -154,8 +196,8 @@ export class WorkspaceManager {
   }
 
   public renameItem(oldRel: string, newRel: string): boolean {
-    const oldAbs = path.resolve(this.rootPath, oldRel);
-    const newAbs = path.resolve(this.rootPath, newRel);
+    const oldAbs = this.resolveSafePath(oldRel);
+    const newAbs = this.resolveSafePath(newRel);
     if (!fs.existsSync(oldAbs)) return false;
     const dir = path.dirname(newAbs);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -164,7 +206,7 @@ export class WorkspaceManager {
   }
 
   public duplicateItem(relPath: string): string {
-    const abs = path.resolve(this.rootPath, relPath);
+    const abs = this.resolveSafePath(relPath);
     if (!fs.existsSync(abs)) throw new Error(`Item not found: ${relPath}`);
     const ext = path.extname(relPath);
     const base = path.basename(relPath, ext);
@@ -172,12 +214,12 @@ export class WorkspaceManager {
 
     let copyRel = dir === '.' ? `${base}_copy${ext}` : `${dir}/${base}_copy${ext}`;
     let counter = 1;
-    while (fs.existsSync(path.resolve(this.rootPath, copyRel))) {
+    while (fs.existsSync(this.resolveSafePath(copyRel))) {
       copyRel = dir === '.' ? `${base}_copy_${counter}${ext}` : `${dir}/${base}_copy_${counter}${ext}`;
       counter++;
     }
 
-    const copyAbs = path.resolve(this.rootPath, copyRel);
+    const copyAbs = this.resolveSafePath(copyRel);
     fs.copyFileSync(abs, copyAbs);
     return copyRel;
   }
@@ -202,7 +244,7 @@ export class WorkspaceManager {
     if (template === 'webapp') {
       fs.writeFileSync(
         path.join(resolved, 'index.html'),
-        `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>${path.basename(resolved)}</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6">\n  <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 text-center shadow-xl">\n    <h1 class="text-2xl font-bold mb-2">${path.basename(resolved)}</h1>\n    <p class="text-slate-400 text-sm mb-4">Built with Orbit IDE</p>\n    <button onclick="alert('Hello from Orbit!')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-medium">Click Me</button>\n  </div>\n  <script src="app.js"></script>\n</body>\n</html>`
+        `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>${path.basename(resolved)}</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-6">\n  <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 text-center shadow-xl">\n    <h1 class="text-2xl font-bold mb-2">${path.basename(resolved)}</h1>\n    <p class="text-slate-400 text-sm mb-4">Built with MaxIDE</p>\n    <button onclick="alert('Hello from MaxIDE!')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-medium">Click Me</button>\n  </div>\n  <script src="app.js"></script>\n</body>\n</html>`
       );
       fs.writeFileSync(path.join(resolved, 'app.js'), `console.log("${path.basename(resolved)} loaded.");\n`);
       fs.writeFileSync(path.join(resolved, 'style.css'), `/* ${path.basename(resolved)} styles */\n`);
@@ -210,7 +252,7 @@ export class WorkspaceManager {
         path.join(resolved, 'package.json'),
         JSON.stringify({ name: path.basename(resolved), version: '1.0.0', main: 'app.js' }, null, 2)
       );
-      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nModern Web App created with Orbit IDE.\n`);
+      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nModern Web App created with MaxIDE.\n`);
     } else if (template === 'react') {
       fs.writeFileSync(
         path.join(resolved, 'index.html'),
@@ -218,24 +260,24 @@ export class WorkspaceManager {
       );
       fs.writeFileSync(
         path.join(resolved, 'App.jsx'),
-        `function App() {\n  const [count, setCount] = React.useState(0);\n  return (\n    <div className="flex flex-col items-center justify-center min-h-screen p-6">\n      <div className="p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center max-w-sm shadow-2xl">\n        <h1 className="text-3xl font-extrabold text-cyan-400 mb-2">React in Orbit</h1>\n        <p className="text-slate-400 text-sm mb-6">Interactive component state</p>\n        <button onClick={() => setCount(c => c + 1)} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold shadow-lg">\n          Count: {count}\n        </button>\n      </div>\n    </div>\n  );\n}\nReactDOM.createRoot(document.getElementById('root')).render(<App />);\n`
+        `function App() {\n  const [count, setCount] = React.useState(0);\n  return (\n    <div className="flex flex-col items-center justify-center min-h-screen p-6">\n      <div className="p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center max-w-sm shadow-2xl">\n        <h1 className="text-3xl font-extrabold text-cyan-400 mb-2">React in MaxIDE</h1>\n        <p className="text-slate-400 text-sm mb-6">Interactive component state</p>\n        <button onClick={() => setCount(c => c + 1)} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold shadow-lg">\n          Count: {count}\n        </button>\n      </div>\n    </div>\n  );\n}\nReactDOM.createRoot(document.getElementById('root')).render(<App />);\n`
       );
       fs.writeFileSync(
         path.join(resolved, 'package.json'),
         JSON.stringify({ name: path.basename(resolved), version: '1.0.0' }, null, 2)
       );
-      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nReact project initialized in Orbit IDE.\n`);
+      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nReact project initialized in MaxIDE.\n`);
     } else if (template === 'python') {
       fs.writeFileSync(
         path.join(resolved, 'main.py'),
-        '# Orbit IDE Python Entrypoint\n\ndef main():\n    print("Hello from Orbit IDE!")\n\nif __name__ == "__main__":\n    main()\n'
+        '# MaxIDE Python Entrypoint\n\ndef main():\n    print("Hello from MaxIDE!")\n\nif __name__ == "__main__":\n    main()\n'
       );
       fs.writeFileSync(
         path.join(resolved, 'README.md'),
-        `# ${path.basename(resolved)}\n\nPython project initialized in Orbit IDE.\n`
+        `# ${path.basename(resolved)}\n\nPython project initialized in MaxIDE.\n`
       );
     } else if (template === 'blank') {
-      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nProject initialized in Orbit IDE.\n`);
+      fs.writeFileSync(path.join(resolved, 'README.md'), `# ${path.basename(resolved)}\n\nProject initialized in MaxIDE.\n`);
     } else {
       fs.writeFileSync(
         path.join(resolved, 'package.json'),
@@ -243,11 +285,11 @@ export class WorkspaceManager {
       );
       fs.writeFileSync(
         path.join(resolved, 'index.ts'),
-        '// Orbit IDE TypeScript Entrypoint\nconsole.log("Hello from Orbit IDE!");\n'
+        '// MaxIDE TypeScript Entrypoint\nconsole.log("Hello from MaxIDE!");\n'
       );
       fs.writeFileSync(
         path.join(resolved, 'README.md'),
-        `# ${path.basename(resolved)}\n\nProject initialized in Orbit IDE.\n`
+        `# ${path.basename(resolved)}\n\nProject initialized in MaxIDE.\n`
       );
     }
 

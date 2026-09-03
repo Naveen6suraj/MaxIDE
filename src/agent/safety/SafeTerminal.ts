@@ -160,7 +160,7 @@ export class SafeTerminal {
     });
   }
 
-  public resolveApproval(id: string, decision: 'allow_once' | 'allow_for_task' | 'deny'): boolean {
+  public resolveApproval(id: string, decision: 'allow_once' | 'allow_for_task' | 'deny' | 'reject' | 'cancel_task'): boolean {
     const req = this.pendingApprovals.get(id);
     if (!req) return false;
 

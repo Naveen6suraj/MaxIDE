@@ -1,6 +1,6 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
- * REST API Router (Full IDE Workspace & Agent Integration)
+ * MaxIDE - Unlimited AI Provider Platform
+ * REST API Routes for Workspace, Providers, Models, Terminal, Checkpoints, and Agent Engine
  */
 
 import { Router } from 'express';
@@ -42,7 +42,7 @@ export function createApiRouter(
       if (!filePath) return res.status(400).json({ error: 'Path parameter required' });
       const isRaw = req.query.raw === 'true';
       if (isRaw) {
-        const abs = path.resolve(agentEngine.workspaceManager.getRootPath(), filePath);
+        const abs = agentEngine.workspaceManager.resolveSafePath(filePath);
         if (!fs.existsSync(abs)) {
           return res.status(404).json({ error: `File "${filePath}" not found` });
         }

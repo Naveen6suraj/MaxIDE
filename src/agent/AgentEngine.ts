@@ -1,6 +1,6 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
- * Advanced Autonomous Agent Engine
+ * MaxIDE - Unlimited AI Provider Platform
+ * Autonomous Multi-Step Agent Engine
  * 
  * STRICT ARCHITECTURAL INVARIANT:
  * This Agent Engine communicates EXCLUSIVELY with AIGateway.
@@ -208,6 +208,7 @@ export class AgentEngine {
     taskPrompt: string,
     options: {
       modelId?: string;
+      autonomyMode?: AutonomyMode;
       maxSteps?: number;
       maxErrorRetries?: number;
       onStep?: (step: AgentStep) => void;
@@ -215,11 +216,14 @@ export class AgentEngine {
       createPreCheckpoint?: boolean;
     } = {}
   ): Promise<AgentTaskResult> {
-    const maxSteps = options.maxSteps || 10;
+    if (options.autonomyMode) {
+      this.autonomyMode = options.autonomyMode;
+    }
+    const maxSteps = options.maxSteps || (this.autonomyMode === 'AUTONOMOUS' ? 30 : 25);
     const maxErrorRetries = options.maxErrorRetries || 3;
     const modelId = options.modelId || this.gateway.getActiveModelId();
 
-    this.logActivity('thought', `Started task: "${taskPrompt}"`);
+    this.logActivity('thought', `Started task (${this.autonomyMode} mode): "${taskPrompt}"`);
 
     // 1. Optional Automatic Pre-Task Checkpoint (Requirement 11)
     if (options.createPreCheckpoint !== false && this.autonomyMode !== 'ASK') {
@@ -345,6 +349,32 @@ export class AgentEngine {
 
       for (const tc of currentToolCalls) {
         this.logActivity('tool_start', `Tool: ${tc.name}`, tc.arguments);
+
+        // Check Autonomy Mode permissions:
+        // ASK mode: Read-only inspection allowed, mutations require explicit approval.
+        const isReadOnlyTool = [
+          'read_file', 'list_files', 'search_files', 'git_status', 'git_diff',
+          'git_log', 'browser_inspect_dom', 'browser_navigate', 'browser_screenshot',
+          'get_command_output', 'open_file', 'open_preview'
+        ].includes(tc.name);
+
+        if (this.autonomyMode === 'ASK' && !isReadOnlyTool) {
+          this.logActivity('thought', `ASK Mode: Proposing tool action without mutating workspace: ${tc.name}`);
+          const proposedResult = {
+            status: 'proposed_for_approval',
+            message: `Action "${tc.name}" was proposed. In ASK mode, file mutations and system modifications require explicit user approval.`,
+            proposedTool: tc.name,
+            arguments: tc.arguments,
+          };
+          toolResults.push({ name: tc.name, result: proposedResult });
+          messages.push({
+            role: 'tool',
+            name: tc.name,
+            toolCallId: tc.id,
+            content: JSON.stringify(proposedResult),
+          });
+          continue;
+        }
 
         // Execute via ToolRegistry
         const execResult: ToolExecutionResult = await this.toolRegistry.execute(tc.name, tc.arguments, {
@@ -490,17 +520,28 @@ export class AgentEngine {
 
     // 2. Fallback for code block file generation:
     // If the task specifically asks to create, build, or write code, and the model outputted a code block:
-    if (currentStep === 1 && (lowerPrompt.includes('create') || lowerPrompt.includes('build') || lowerPrompt.includes('node') || lowerPrompt.includes('app') || lowerPrompt.includes('project'))) {
+    if (currentStep === 1 && (lowerPrompt.includes('create') || lowerPrompt.includes('build') || lowerPrompt.includes('node') || lowerPrompt.includes('app') || lowerPrompt.includes('project') || lowerPrompt.includes('file'))) {
+      let codeContent = '';
       const codeBlockMatch = /```(?:javascript|js|typescript|ts|python|html|css)?\s*([\s\S]*?)```/i.exec(text);
-      if (codeBlockMatch && codeBlockMatch[1].trim().length > 10) {
+      if (codeBlockMatch && codeBlockMatch[1].trim().length > 5) {
+        codeContent = codeBlockMatch[1].trim();
+      } else if (text.includes('function ') || text.includes('console.log') || text.includes('const ') || text.includes('def ')) {
+        const lines = text.split('\n');
+        const codeLines = lines.filter(l => !l.startsWith('I have') && !l.startsWith('Here is') && !l.startsWith('Sure') && !l.startsWith('#'));
+        if (codeLines.length > 0) codeContent = codeLines.join('\n').trim();
+      }
+
+      if (codeContent) {
         let detectedPath = 'index.js';
         if (lowerPrompt.includes('python') || text.includes('def ')) detectedPath = 'main.py';
         else if (lowerPrompt.includes('html') || text.includes('<!DOCTYPE') || text.includes('<html')) detectedPath = 'index.html';
         else if (lowerPrompt.includes('node') || text.includes('function ') || text.includes('console.log')) detectedPath = 'app.js';
 
         // Check if filename was mentioned in the prompt or text
-        const fnMatch = /(?:file|named|called|path)?\s*[:`'"]([a-zA-Z0-9_\-\.\/]+\.(?:js|ts|py|html|json|txt))[`'"]/i.exec(text) ||
-          /(?:file|named|called|path)?\s*[:`'"]([a-zA-Z0-9_\-\.\/]+\.(?:js|ts|py|html|json|txt))[`'"]/i.exec(taskPrompt);
+        const fnMatch = /(?:file|named|called|path)\s+[`'"]?([a-zA-Z0-9_\-\.\/]+\.(?:js|ts|py|html|json|txt|cjs|mjs))[`'"]?/i.exec(taskPrompt) ||
+          /(?:file|named|called|path)\s+[`'"]?([a-zA-Z0-9_\-\.\/]+\.(?:js|ts|py|html|json|txt|cjs|mjs))[`'"]?/i.exec(text) ||
+          /[`'"]([a-zA-Z0-9_\-\.\/]+\.(?:js|ts|py|html|json|txt|cjs|mjs))[`'"]/i.exec(taskPrompt) ||
+          /\b([a-zA-Z0-9_\-]+\.(?:js|ts|py|html|json|txt|cjs|mjs))\b/i.exec(taskPrompt);
         if (fnMatch && fnMatch[1]) {
           detectedPath = fnMatch[1];
         }
@@ -508,11 +549,11 @@ export class AgentEngine {
         calls.push({
           id: `call-gen-${Date.now()}`,
           name: 'create_file',
-          arguments: { path: detectedPath, content: codeBlockMatch[1].trim() },
+          arguments: { path: detectedPath, content: codeContent },
         });
 
         // If the task asked to run it: also schedule run_command
-        if (lowerPrompt.includes('run') && detectedPath.endsWith('.js')) {
+        if (lowerPrompt.includes('run') && (detectedPath.endsWith('.js') || detectedPath.endsWith('.cjs') || detectedPath.endsWith('.mjs'))) {
           calls.push({
             id: `call-run-${Date.now()}`,
             name: 'run_command',
@@ -643,7 +684,7 @@ export class AgentEngine {
         const codebaseContext = this.intelligence.buildContext(trimmed, 1500);
 
         const systemPrompt =
-          'You are Orbit IDE Assistant, an AI software engineering companion.\n' +
+          'You are MaxIDE Assistant, an elite AI software engineering companion.\n' +
           `Workspace: ${this.workspaceManager.getRootPath()}\n` +
           'Answer the user directly and helpfully in the chat with markdown formatting.\n' +
           (codebaseContext ? `\nCodebase Context:\n${codebaseContext}\n` : '');
@@ -658,7 +699,7 @@ export class AgentEngine {
 
         responseText = resp.content;
       } catch (err: any) {
-        responseText = `Hello! I am your Orbit IDE assistant. I can build software projects, inspect and modify files, run terminal commands, and verify code with Playwright.`;
+        responseText = `Hello! I am your MaxIDE assistant. I can build software projects, inspect and modify files, run terminal commands, and verify code with Playwright.`;
       }
 
       return {
