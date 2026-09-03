@@ -1,5 +1,10 @@
 [
   {
+    "name": "test-workspace",
+    "path": "C:\\Users\\Naveen Suraj\\.gemini\\antigravity\\scratch\\orbit-ai-gateway\\test-workspace",
+    "lastOpened": "2026-09-03T05:41:31.285Z"
+  },
+  {
     "name": "workspace",
     "path": "C:\\Users\\Naveen Suraj\\.gemini\\antigravity\\scratch\\orbit-ai-gateway\\workspace",
     "lastOpened": "2026-09-03T05:28:18.304Z"
@@ -13,11 +18,6 @@
     "name": "test-workspace-ide",
     "path": "C:\\Users\\Naveen Suraj\\.gemini\\antigravity\\scratch\\orbit-ai-gateway\\test-workspace-ide",
     "lastOpened": "2026-09-02T18:03:48.851Z"
-  },
-  {
-    "name": "test-workspace",
-    "path": "C:\\Users\\Naveen Suraj\\.gemini\\antigravity\\scratch\\orbit-ai-gateway\\test-workspace",
-    "lastOpened": "2026-09-02T18:03:38.542Z"
   },
   {
     "name": "test-final-e2e-project",

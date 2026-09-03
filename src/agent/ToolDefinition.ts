@@ -51,7 +51,30 @@ export class ToolRegistry {
   }
 
   public getTool(name: string): ExecutableTool | undefined {
-    return this.tools.get(name);
+    let tool = this.tools.get(name);
+    if (!tool) {
+      // Universal tool name alias mapping: camelCase <-> snake_case
+      const aliases: Record<string, string> = {
+        'writeFile': 'create_file',
+        'write_file': 'create_file',
+        'createFile': 'create_file',
+        'create_file': 'create_file',
+        'readFile': 'read_file',
+        'read_file': 'read_file',
+        'editFile': 'edit_file',
+        'edit_file': 'edit_file',
+        'listDir': 'list_files',
+        'listFiles': 'list_files',
+        'list_files': 'list_files',
+        'list_dir': 'list_files',
+        'runCommand': 'run_command',
+        'run_command': 'run_command',
+        'executeCommand': 'run_command',
+      };
+      const aliasTarget = aliases[name];
+      if (aliasTarget) tool = this.tools.get(aliasTarget);
+    }
+    return tool;
   }
 
   public getDefinitions(): ToolDefinition[] {
@@ -71,7 +94,7 @@ export class ToolRegistry {
    */
   public async execute(name: string, args: any, context?: any): Promise<ToolExecutionResult> {
     const t0 = Date.now();
-    const tool = this.tools.get(name);
+    const tool = this.getTool(name);
 
     const log: ToolActivityLog = {
       id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
