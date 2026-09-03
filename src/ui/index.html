@@ -102,10 +102,16 @@
       <div class="h-4 w-[1px] bg-white/10"></div>
 
       <!-- Current Workspace Pill -->
-      <button onclick="promptSwitchProject()" class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-ide-surface hover:bg-ide-hover border border-ide-border text-xs text-slate-300 transition-colors" title="Switch Workspace Folder">
+      <button onclick="openAgentManager('projects')" class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-ide-surface hover:bg-ide-hover border border-ide-border text-xs text-slate-300 transition-colors" title="Manage Projects & Authorized Folders">
         <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-        <span id="header-project-name" class="font-mono text-[11px] max-w-[140px] truncate text-slate-200 font-medium">orbit-ai-gateway</span>
+        <span id="header-project-name" class="font-mono text-[11px] max-w-[140px] truncate text-slate-200 font-medium">Default Project</span>
         <svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+
+      <!-- Agent Manager & Projects Button -->
+      <button onclick="openAgentManager('agents')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-500/40 text-xs text-cyan-300 transition-colors shadow-sm" title="Agent Manager & Projects Dashboard (Ctrl+Shift+P)">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 pulse-dot"></span>
+        <span class="font-semibold text-[11px]">Agents & Projects</span>
       </button>
     </div>
 
@@ -739,6 +745,115 @@
     </div>
   </div>
 
+  <!-- D. Agent Manager & Persistent Projects Dashboard Modal -->
+  <div id="modal-agent-manager" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-ide-panel border border-ide-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-ide-border flex items-center justify-between bg-ide-panel flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+            ⚡
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-base">MaxIDE Mission Control & Project Manager</h3>
+            <p class="text-xs text-slate-400">Persistent Projects, Active Agents, Multi-Folder Workspaces & History</p>
+          </div>
+        </div>
+        <button onclick="closeAgentManager()" class="text-slate-400 hover:text-white text-lg p-1">✕</button>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="px-6 border-b border-ide-border flex items-center justify-between text-xs font-semibold bg-ide-surface/50 flex-shrink-0">
+        <div class="flex items-center gap-6">
+          <button onclick="switchAgentManagerTab('agents')" id="mgr-tab-agents" class="py-3 text-cyan-400 border-b-2 border-cyan-400 font-bold transition">
+            Active Agents & Missions (<span id="mgr-agents-count">0</span>)
+          </button>
+          <button onclick="switchAgentManagerTab('projects')" id="mgr-tab-projects" class="py-3 text-slate-400 hover:text-white transition">
+            Projects & Multi-Folder (<span id="mgr-projects-count">0</span>)
+          </button>
+          <button onclick="switchAgentManagerTab('permissions')" id="mgr-tab-permissions" class="py-3 text-slate-400 hover:text-white transition">
+            Project Permissions 🛡️
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openNewProjectModal()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition flex items-center gap-1 shadow-sm">
+            + New Project
+          </button>
+        </div>
+      </div>
+
+      <!-- Content Area -->
+      <div class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+        <!-- View 1: Agents & Conversations List -->
+        <div id="mgr-view-agents" class="space-y-4">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-slate-300">Filter by status:</span>
+              <button onclick="filterManagerAgents('ALL')" class="px-2 py-0.5 rounded bg-ide-surface border border-ide-border text-cyan-300 hover:text-white">All</button>
+              <button onclick="filterManagerAgents('WORKING')" class="px-2 py-0.5 rounded bg-ide-surface border border-ide-border text-amber-300 hover:text-white">Working</button>
+              <button onclick="filterManagerAgents('COMPLETED')" class="px-2 py-0.5 rounded bg-ide-surface border border-ide-border text-emerald-300 hover:text-white">Completed</button>
+              <button onclick="filterManagerAgents('INTERRUPTED')" class="px-2 py-0.5 rounded bg-ide-surface border border-ide-border text-rose-300 hover:text-white">Interrupted</button>
+            </div>
+            <input type="text" id="mgr-agents-search" oninput="searchManagerAgents(this.value)" placeholder="Search tasks, files, prompts..." class="px-3 py-1.5 rounded-lg bg-ide-surface border border-ide-border text-white text-xs font-mono focus:outline-none focus:border-cyan-500 w-64" />
+          </div>
+
+          <div id="mgr-agents-container" class="space-y-2.5">
+            <!-- Populated via renderAgentManagerAgents -->
+          </div>
+        </div>
+
+        <!-- View 2: Projects List -->
+        <div id="mgr-view-projects" class="space-y-4 hidden">
+          <div id="mgr-projects-container" class="grid grid-cols-1 gap-3">
+            <!-- Populated via renderAgentManagerProjects -->
+          </div>
+        </div>
+
+        <!-- View 3: Permissions -->
+        <div id="mgr-view-permissions" class="space-y-4 hidden">
+          <div id="mgr-permissions-container" class="bg-ide-surface border border-ide-border rounded-xl p-5 space-y-4">
+            <!-- Populated via renderAgentManagerPermissions -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- E. New Project Modal -->
+  <div id="modal-new-project" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden items-center justify-center p-4">
+    <div class="w-full max-w-md bg-ide-panel border border-ide-border rounded-2xl shadow-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-ide-border pb-3">
+        <h3 class="font-bold text-white text-sm">Create New Multi-Folder Project</h3>
+        <button onclick="closeNewProjectModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Project Name:</label>
+          <input id="new-proj-name" type="text" placeholder="e.g. Ecommerce Platform" class="w-full px-3 py-2 rounded-xl bg-ide-surface border border-ide-border text-white font-mono focus:outline-none focus:border-cyan-500" />
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Primary Workspace Folder:</label>
+          <input id="new-proj-folder" type="text" placeholder="C:\Projects\my-project" class="w-full px-3 py-2 rounded-xl bg-ide-surface border border-ide-border text-white font-mono focus:outline-none focus:border-cyan-500" />
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Additional Authorized Folders (Optional, comma-separated):</label>
+          <input id="new-proj-extra-folders" type="text" placeholder="C:\Projects\shared, C:\Projects\docs" class="w-full px-3 py-2 rounded-xl bg-ide-surface border border-ide-border text-white font-mono focus:outline-none focus:border-cyan-500" />
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Git Worktree Mode:</label>
+          <select id="new-proj-worktree-mode" class="w-full px-3 py-2 rounded-xl bg-ide-surface border border-ide-border text-white font-mono focus:outline-none focus:border-cyan-500">
+            <option value="LOCAL">LOCAL (Direct workspace editing)</option>
+            <option value="WORKTREE">WORKTREE (Isolated Git branch/worktree)</option>
+          </select>
+        </div>
+        <div class="pt-3 flex justify-end gap-2 border-t border-ide-border">
+          <button onclick="closeNewProjectModal()" class="px-3 py-1.5 rounded-xl bg-ide-surface hover:bg-ide-hover text-slate-400 text-xs">Cancel</button>
+          <button onclick="submitCreateProject()" class="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md">Create Project</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ========================================================================= -->
   <!-- 5. MAIN SCRIPT LOGIC                                                      -->
   <!-- ========================================================================= -->
@@ -822,15 +937,29 @@
     // --- Core Initializer ---
     async function initWorkspace() {
       await fetchMode();
+      await fetchProjectsList();
       await fetchWorkspaceTree();
       await refreshProviders();
       await refreshGit();
+      await checkInterruptedTasks();
       await pollApprovals();
       setInterval(pollApprovals, 3000);
       setInterval(refreshGit, 10000);
 
       // Global Keyboard Shortcuts
       window.addEventListener('keydown', (e) => {
+        // Ctrl+Shift+P: Global Command Palette
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+          e.preventDefault();
+          openCommandPalette();
+          return;
+        }
+        // Ctrl+Shift+M: Open Agent Manager / Missions
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+          e.preventDefault();
+          openAgentManager('agents');
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
           e.preventDefault();
           openCommandPalette();
@@ -847,7 +976,7 @@
           e.preventDefault();
           toggleAgentPanel();
         }
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P') && !e.shiftKey) {
           e.preventDefault();
           focusAgentSearch();
         }
@@ -2033,14 +2162,25 @@
 
     // --- Command Palette ---
     const COMMANDS = [
+      { id: 'agent_manager', label: 'Agent: Open Mission Control & Agent Manager', action: () => openAgentManager('agents') },
+      { id: 'proj_manager', label: 'Project: Open Project & Multi-Folder Manager', action: () => openAgentManager('projects') },
+      { id: 'proj_new', label: 'Project: New Multi-Folder Project', action: () => openNewProjectModal() },
+      { id: 'proj_add_folder', label: 'Project: Add Authorized Folder', action: () => promptAddProjectFolder() },
+      { id: 'agent_resume', label: 'Agent: Check Interrupted Tasks / Recovery', action: () => checkInterruptedTasks(true) },
       { id: 'new_file', label: 'File: New File', action: () => promptCreateFile() },
       { id: 'new_folder', label: 'File: New Folder', action: () => promptCreateFolder() },
       { id: 'search_symbol', label: 'Search: Find Symbol in Workspace', action: () => focusAgentSearch() },
       { id: 'ask_agent', label: 'Agent: Launch Autonomous Task', action: () => { switchAgentTab('chat'); document.getElementById('agent-prompt-input').focus(); } },
       { id: 'checkpoint', label: 'Snapshot: Create Checkpoint', action: () => promptCreateCheckpoint() },
+      { id: 'snapshot_rollback', label: 'Snapshot: View & Restore Checkpoints', action: () => switchSidebar('checkpoints') },
       { id: 'run_tests', label: 'Test: Run All Verification Batteries', action: () => { switchBottomTab('tests'); runAllSuites(); } },
       { id: 'open_term', label: 'Terminal: Open Safe Terminal', action: () => switchBottomTab('terminal') },
       { id: 'browser_verify', label: 'Browser: Launch Playwright Verification', action: () => switchBottomTab('browser') },
+      { id: 'git_status', label: 'Git: View Status & Modified Files', action: () => switchSidebar('git') },
+      { id: 'git_commit', label: 'Git: Commit Working Tree', action: () => { switchSidebar('git'); document.getElementById('git-commit-msg')?.focus(); } },
+      { id: 'ai_select_model', label: 'AI: Focus Model Selector', action: () => document.getElementById('header-model-select')?.focus() },
+      { id: 'ai_autonomy', label: 'AI: Change Autonomy Mode (AUTONOMOUS/AGENT/ASSIST/ASK)', action: () => document.getElementById('header-autonomy-mode')?.focus() },
+      { id: 'ai_refresh', label: 'AI: Refresh Providers & Models', action: () => refreshProviders() },
       { id: 'settings', label: 'Settings: AI Providers & Routing', action: () => openSettingsModal() },
     ];
 
@@ -2285,6 +2425,504 @@
           handleAgentFileSelected(e.dataTransfer.files);
         }
       }, false);
+    }
+
+    // =========================================================================
+    // 6. PERSISTENT AGENT MANAGER, PROJECTS & CONVERSATIONS
+    // =========================================================================
+    let managerState = {
+      projects: [],
+      activeProject: null,
+      conversations: [],
+      activeFilter: 'ALL',
+      interruptedTasks: [],
+    };
+
+    function openAgentManager(tab = 'agents') {
+      const modal = document.getElementById('modal-agent-manager');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      switchAgentManagerTab(tab);
+      loadAgentManagerData();
+    }
+
+    function closeAgentManager() {
+      const modal = document.getElementById('modal-agent-manager');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+
+    function switchAgentManagerTab(tab) {
+      ['agents', 'projects', 'permissions'].forEach(t => {
+        const tabBtn = document.getElementById(`mgr-tab-${t}`);
+        const viewEl = document.getElementById(`mgr-view-${t}`);
+        if (t === tab) {
+          tabBtn?.classList.add('text-cyan-400', 'border-b-2', 'border-cyan-400', 'font-bold');
+          tabBtn?.classList.remove('text-slate-400');
+          viewEl?.classList.remove('hidden');
+        } else {
+          tabBtn?.classList.remove('text-cyan-400', 'border-b-2', 'border-cyan-400', 'font-bold');
+          tabBtn?.classList.add('text-slate-400');
+          viewEl?.classList.add('hidden');
+        }
+      });
+    }
+
+    async function loadAgentManagerData() {
+      await Promise.all([
+        fetchProjectsList(),
+        fetchConversationsList(),
+      ]);
+    }
+
+    async function fetchProjectsList() {
+      try {
+        const res = await fetch('/api/projects');
+        const data = await res.json();
+        managerState.projects = data.projects || [];
+        managerState.activeProject = data.activeProject;
+        const countEl = document.getElementById('mgr-projects-count');
+        if (countEl) countEl.textContent = managerState.projects.length;
+        if (data.activeProject) {
+          const headerName = document.getElementById('header-project-name');
+          if (headerName) headerName.textContent = data.activeProject.name;
+        }
+        renderAgentManagerProjects();
+        renderAgentManagerPermissions();
+      } catch (err) {
+        console.warn('Failed to load projects:', err);
+      }
+    }
+
+    async function fetchConversationsList() {
+      try {
+        const res = await fetch('/api/conversations');
+        const list = await res.json();
+        managerState.conversations = list || [];
+        const countEl = document.getElementById('mgr-agents-count');
+        if (countEl) countEl.textContent = managerState.conversations.length;
+        renderAgentManagerAgents();
+      } catch (err) {
+        console.warn('Failed to load conversations:', err);
+      }
+    }
+
+    function filterManagerAgents(status) {
+      managerState.activeFilter = status;
+      renderAgentManagerAgents();
+    }
+
+    function searchManagerAgents(query) {
+      const q = query.toLowerCase();
+      renderAgentManagerAgents(q);
+    }
+
+    function renderAgentManagerAgents(searchFilter = '') {
+      const container = document.getElementById('mgr-agents-container');
+      if (!container) return;
+
+      let filtered = managerState.conversations;
+      if (managerState.activeFilter !== 'ALL') {
+        filtered = filtered.filter(c => c.taskStatus === managerState.activeFilter);
+      }
+      if (searchFilter) {
+        filtered = filtered.filter(c => 
+          (c.title || '').toLowerCase().includes(searchFilter) ||
+          (c.taskPrompt || '').toLowerCase().includes(searchFilter)
+        );
+      }
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="p-8 text-center text-slate-500 text-xs border border-dashed border-ide-border rounded-xl">
+            No agent conversations found. Type a prompt in the chat feed to start a new mission.
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(conv => {
+        let statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-[10px]">COMPLETED</span>';
+        if (conv.taskStatus === 'WORKING') statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-400 font-mono text-[10px] pulse-dot">WORKING</span>';
+        if (conv.taskStatus === 'FAILED') statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-400 font-mono text-[10px]">FAILED</span>';
+        if (conv.taskStatus === 'INTERRUPTED') statusBadge = '<span class="px-2 py-0.5 rounded bg-purple-950/80 border border-purple-500/40 text-purple-400 font-mono text-[10px]">INTERRUPTED</span>';
+
+        const dateStr = new Date(conv.updatedAt || conv.createdAt).toLocaleString();
+
+        return `
+          <div class="p-4 rounded-xl bg-ide-surface border border-ide-border hover:border-cyan-500/40 transition space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                ${statusBadge}
+                <span class="font-bold text-white text-xs">${escapeHtml(conv.title || 'Task')}</span>
+              </div>
+              <span class="text-slate-500 font-mono text-[10px]">${dateStr}</span>
+            </div>
+            <p class="text-[11px] text-slate-300 font-mono bg-ide-bg/80 p-2 rounded-lg border border-ide-border/60 line-clamp-2">
+              ${escapeHtml(conv.taskPrompt || '')}
+            </p>
+            <div class="flex items-center justify-between pt-1 border-t border-ide-border/40 text-[11px]">
+              <div class="flex items-center gap-2 text-slate-400">
+                <span>Model: <strong class="text-slate-200 font-mono">${conv.modelId}</strong></span>
+                <span>•</span>
+                <span>Mode: <strong class="text-cyan-400 font-mono">${conv.autonomyMode}</strong></span>
+                <span>•</span>
+                <span>${conv.messages?.length || 0} messages</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="resumeConversationInChat('${conv.id}')" class="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow-sm flex items-center gap-1 transition">
+                  ▶ Continue Session
+                </button>
+                <button onclick="deleteConversationFromManager('${conv.id}')" class="px-2.5 py-1 rounded-lg bg-ide-bg hover:bg-rose-950 border border-ide-border hover:border-rose-500/40 text-slate-400 hover:text-rose-400 text-xs transition">
+                  🗑 Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderAgentManagerProjects() {
+      const container = document.getElementById('mgr-projects-container');
+      if (!container) return;
+
+      if (managerState.projects.length === 0) {
+        container.innerHTML = '<div class="text-center p-6 text-slate-500">No projects found.</div>';
+        return;
+      }
+
+      container.innerHTML = managerState.projects.map(proj => {
+        const isActive = managerState.activeProject?.id === proj.id;
+        const foldersChips = (proj.folders || []).map(f => `
+          <span class="px-2 py-0.5 rounded bg-ide-bg border border-ide-border text-cyan-400 font-mono text-[10px] inline-flex items-center gap-1">
+            📁 ${escapeHtml(f)}
+          </span>
+        `).join('');
+
+        return `
+          <div class="p-4 rounded-xl bg-ide-surface border ${isActive ? 'border-cyan-500 shadow-md shadow-cyan-950/20' : 'border-ide-border'} space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-cyan-500 text-black' : 'bg-slate-800 text-cyan-400'} flex items-center justify-center font-bold text-xs">
+                  📁
+                </div>
+                <div>
+                  <h4 class="font-bold text-white text-xs flex items-center gap-2">
+                    ${escapeHtml(proj.name)}
+                    ${isActive ? '<span class="px-1.5 py-0.2 rounded bg-cyan-950 border border-cyan-500/50 text-cyan-300 text-[10px]">ACTIVE</span>' : ''}
+                  </h4>
+                  <p class="text-[10px] text-slate-400 font-mono">Worktree: ${proj.gitWorktreeMode || 'LOCAL'} • Autonomy: ${proj.autonomyMode || 'AUTONOMOUS'}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                ${!isActive ? `
+                  <button onclick="switchProjectFromManager('${proj.id}')" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition">
+                    Switch to this Project
+                  </button>
+                ` : ''}
+                <button onclick="promptAddProjectFolder('${proj.id}')" class="px-2.5 py-1 rounded-lg bg-ide-bg hover:bg-ide-hover border border-ide-border text-cyan-300 text-xs transition">
+                  + Add Folder
+                </button>
+                ${proj.id !== 'proj-default' ? `
+                  <button onclick="deleteProjectFromManager('${proj.id}')" class="px-2 py-1 rounded-lg bg-ide-bg hover:bg-rose-950 text-slate-400 hover:text-rose-400 text-xs transition">
+                    Delete
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <div class="text-[10px] text-slate-400 uppercase font-semibold">Authorized Project Folders (${(proj.folders || []).length}):</div>
+              <div class="flex flex-wrap gap-1.5">
+                ${foldersChips}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderAgentManagerPermissions() {
+      const container = document.getElementById('mgr-permissions-container');
+      if (!container || !managerState.activeProject) return;
+
+      container.innerHTML = `
+        <div class="flex items-center justify-between border-b border-ide-border pb-3">
+          <div>
+            <h4 class="font-bold text-white text-xs">Persistent Permissions for: ${escapeHtml(managerState.activeProject.name)}</h4>
+            <p class="text-[10px] text-slate-400">Settings persist across IDE restarts and apply to all agents in this project.</p>
+          </div>
+          <button onclick="saveProjectPermissions()" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-sm">
+            Save Permissions
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 text-xs">
+          <div class="p-3 rounded-lg bg-ide-bg border border-ide-border space-y-2">
+            <h5 class="font-bold text-cyan-400 text-[11px] uppercase">📁 Filesystem Controls</h5>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-fs-read" checked disabled class="rounded bg-ide-surface border-ide-border" />
+              <span>Read Files (Always Authorized)</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-fs-write" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>Write & Patch Project Files</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-fs-delete" class="rounded bg-ide-surface border-ide-border" />
+              <span>Delete Files (Requires Explicit Grant)</span>
+            </label>
+          </div>
+
+          <div class="p-3 rounded-lg bg-ide-bg border border-ide-border space-y-2">
+            <h5 class="font-bold text-cyan-400 text-[11px] uppercase">💻 Terminal Controls</h5>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-term-node" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>Node.js Execution</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-term-npm" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>npm & npx package commands</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-term-python" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>Python & pip execution</span>
+            </label>
+          </div>
+
+          <div class="p-3 rounded-lg bg-ide-bg border border-ide-border space-y-2">
+            <h5 class="font-bold text-cyan-400 text-[11px] uppercase">🌐 Browser & Playwright</h5>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-browser-pw" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>Playwright Headless Automation</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-browser-net" checked class="rounded bg-ide-surface border-ide-border" />
+              <span>Local DevServer Inspection</span>
+            </label>
+          </div>
+
+          <div class="p-3 rounded-lg bg-ide-bg border border-ide-border space-y-2">
+            <h5 class="font-bold text-cyan-400 text-[11px] uppercase">🌿 Git Operations</h5>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-git-status" checked disabled class="rounded bg-ide-surface border-ide-border" />
+              <span>git status & diff (Safe Read)</span>
+            </label>
+            <label class="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input type="checkbox" id="perm-git-commit" class="rounded bg-ide-surface border-ide-border" />
+              <span>git commit authorization</span>
+            </label>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveProjectPermissions() {
+      if (!managerState.activeProject) return;
+      const grants = {
+        filesystem: {
+          read: true,
+          write: document.getElementById('perm-fs-write')?.checked ?? true,
+          delete: document.getElementById('perm-fs-delete')?.checked ?? false,
+        },
+        terminal: {
+          node: document.getElementById('perm-term-node')?.checked ?? true,
+          npm: document.getElementById('perm-term-npm')?.checked ?? true,
+          python: document.getElementById('perm-term-python')?.checked ?? true,
+          git: true,
+          customCommands: [],
+        },
+        browser: {
+          playwright: document.getElementById('perm-browser-pw')?.checked ?? true,
+          networkInspect: document.getElementById('perm-browser-net')?.checked ?? true,
+        },
+        git: {
+          status: true,
+          diff: true,
+          commit: document.getElementById('perm-git-commit')?.checked ?? false,
+          push: false,
+        },
+      };
+
+      await fetch(`/api/permissions/${managerState.activeProject.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(grants),
+      });
+
+      alert('Permissions saved successfully!');
+    }
+
+    async function resumeConversationInChat(convId) {
+      closeAgentManager();
+      switchAgentTab('chat');
+      const feed = document.getElementById('agent-chat-messages');
+      if (!feed) return;
+
+      try {
+        const res = await fetch(`/api/conversations/${convId}`);
+        const conv = await res.json();
+        if (!conv) return;
+
+        state.currentConversationId = conv.id;
+        feed.innerHTML = `
+          <div class="p-3 rounded-xl bg-cyan-950/50 border border-cyan-500/40 text-cyan-200 text-xs mb-3 flex items-center justify-between">
+            <span>⚡ Resumed Conversation: <strong>${escapeHtml(conv.title || 'Task')}</strong></span>
+            <span class="font-mono text-[10px] text-slate-400">${new Date(conv.updatedAt).toLocaleTimeString()}</span>
+          </div>
+        `;
+
+        (conv.messages || []).forEach(m => {
+          if (m.role === 'user') {
+            feed.innerHTML += `
+              <div class="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-1">
+                <div class="font-bold text-cyan-400 text-[11px] font-mono">YOU</div>
+                <div class="text-white">${escapeHtml(m.content)}</div>
+              </div>
+            `;
+          } else {
+            feed.innerHTML += `
+              <div class="p-3 rounded-xl bg-ide-surface border border-ide-border text-xs space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-emerald-400 text-[11px] font-mono">MAX AGENT</span>
+                  <span class="text-[10px] text-slate-500 font-mono">${m.stepsCompleted || 1} steps</span>
+                </div>
+                <div>${formatMarkdownText(m.content)}</div>
+              </div>
+            `;
+          }
+        });
+        feed.scrollTop = feed.scrollHeight;
+      } catch (err) {
+        console.error('Failed to resume conversation:', err);
+      }
+    }
+
+    async function deleteConversationFromManager(convId) {
+      if (!confirm('Are you sure you want to delete this conversation session?')) return;
+      await fetch(`/api/conversations/${convId}`, { method: 'DELETE' });
+      await fetchConversationsList();
+    }
+
+    function openNewProjectModal() {
+      const modal = document.getElementById('modal-new-project');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.getElementById('new-proj-name').value = '';
+        document.getElementById('new-proj-folder').value = '';
+      }
+    }
+
+    function closeNewProjectModal() {
+      const modal = document.getElementById('modal-new-project');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+
+    async function submitCreateProject() {
+      const name = document.getElementById('new-proj-name').value.trim();
+      const primaryFolder = document.getElementById('new-proj-folder').value.trim();
+      const extraFoldersRaw = document.getElementById('new-proj-extra-folders').value.trim();
+      const worktreeMode = document.getElementById('new-proj-worktree-mode').value;
+
+      if (!name) {
+        alert('Please enter a project name.');
+        return;
+      }
+
+      const folders = [];
+      if (primaryFolder) folders.push(primaryFolder);
+      if (extraFoldersRaw) {
+        extraFoldersRaw.split(',').map(s => s.trim()).filter(Boolean).forEach(f => folders.push(f));
+      }
+
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          folders,
+          gitWorktreeMode: worktreeMode,
+        }),
+      });
+
+      if (res.ok) {
+        closeNewProjectModal();
+        await fetchProjectsList();
+        await fetchWorkspaceTree();
+      } else {
+        alert('Failed to create project.');
+      }
+    }
+
+    async function switchProjectFromManager(projId) {
+      const res = await fetch(`/api/projects/${projId}/switch`, { method: 'POST' });
+      if (res.ok) {
+        await fetchProjectsList();
+        await fetchWorkspaceTree();
+        closeAgentManager();
+      }
+    }
+
+    async function promptAddProjectFolder(projId) {
+      const targetId = projId || managerState.activeProject?.id;
+      if (!targetId) return;
+      const folderPath = prompt('Enter folder path to authorize for this project:');
+      if (!folderPath) return;
+
+      await fetch(`/api/projects/${targetId}/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath }),
+      });
+      await fetchProjectsList();
+    }
+
+    async function deleteProjectFromManager(projId) {
+      if (!confirm('Are you sure you want to delete this project metadata?')) return;
+      await fetch(`/api/projects/${projId}`, { method: 'DELETE' });
+      await fetchProjectsList();
+    }
+
+    async function checkInterruptedTasks(manual = false) {
+      try {
+        const res = await fetch('/api/system/recovery');
+        const data = await res.json();
+        if (data && data.interruptedTasks && data.interruptedTasks.length > 0) {
+          const task = data.interruptedTasks[0];
+          const feed = document.getElementById('agent-chat-messages');
+          if (feed) {
+            feed.innerHTML = `
+              <div class="p-3.5 rounded-xl bg-purple-950/80 border border-purple-500/50 text-purple-200 text-xs mb-3 space-y-2 shadow-lg">
+                <div class="flex items-center justify-between font-bold text-purple-300">
+                  <span class="flex items-center gap-1.5">⚠️ Interrupted Task Detected</span>
+                  <span class="font-mono text-[10px] text-purple-400">Crash / Restart Recovery</span>
+                </div>
+                <p class="text-[11px] text-slate-300">
+                  Task: <strong>"${escapeHtml(task.title || '')}"</strong> was running when MaxIDE last closed.
+                </p>
+                <div class="flex items-center gap-2 pt-1">
+                  <button onclick="resumeConversationInChat('${task.id}')" class="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs shadow-sm">
+                    ▶ Resume Task
+                  </button>
+                  <button onclick="this.parentElement.parentElement.remove()" class="px-2.5 py-1 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-400 text-xs">
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ` + feed.innerHTML;
+          }
+        } else if (manual) {
+          alert('No interrupted tasks detected.');
+        }
+      } catch {}
     }
   </script>
 </body>

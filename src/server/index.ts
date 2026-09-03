@@ -15,6 +15,10 @@ import { AIGateway } from '../ai/gateway/AIGateway.js';
 import { AgentEngine } from '../agent/AgentEngine.js';
 import { MissionControl } from '../agent/mission/MissionControl.js';
 import { createApiRouter } from './routes.js';
+import { PathManager } from '../config/PathManager.js';
+import { ProjectManager } from '../projects/ProjectManager.js';
+import { ConversationStore } from '../agent/conversation/ConversationStore.js';
+import { PermissionManager } from '../agent/safety/PermissionManager.js';
 
 dotenv.config();
 
@@ -106,12 +110,21 @@ Use the **MaxIDE Agent** in the right panel to implement new features, build bac
   }
 } catch {}
 
-// Storage setup
-const storageFile = path.resolve(__dirname, '../../data/providers.json');
+// Storage & Persistent Managers setup
+const pathManager = PathManager.getInstance();
+const projectManager = new ProjectManager(pathManager.getProjectsFile());
+const conversationStore = new ConversationStore(pathManager.getConversationsDir());
+const permissionManager = new PermissionManager(pathManager.getPermissionsFile());
+
+const storageFile = pathManager.getProvidersFile();
 const providerRegistry = new ProviderRegistry(storageFile);
 const modelRegistry = new ModelRegistry(providerRegistry);
 const gateway = new AIGateway(providerRegistry, modelRegistry, 'cloud');
-const agentEngine = new AgentEngine(gateway, workspaceDir);
+
+// Determine initial workspace from active project
+const activeProject = projectManager.getActiveProject();
+const effectiveWorkspace = activeProject?.activeWorkspace || workspaceDir;
+const agentEngine = new AgentEngine(gateway, effectiveWorkspace);
 const missionControl = new MissionControl();
 
 // Seed initial default provider templates if empty
@@ -191,7 +204,16 @@ modelRegistry.discoverAllModels().then(() => {
 }).catch(() => {});
 
 // Mount API routes
-app.use('/api', createApiRouter(providerRegistry, modelRegistry, gateway, agentEngine, missionControl));
+app.use('/api', createApiRouter(
+  providerRegistry,
+  modelRegistry,
+  gateway,
+  agentEngine,
+  missionControl,
+  projectManager,
+  conversationStore,
+  permissionManager
+));
 
 // API Error handling middleware (catches body-parser errors, 413s, etc.)
 app.use((err: any, req: any, res: any, next: any) => {

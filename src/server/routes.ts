@@ -16,13 +16,19 @@ import { AIMode } from '../ai/core/types.js';
 import { runAcceptanceTests } from '../tests/acceptance.test.js';
 import { runIdeE2ETests } from '../tests/ide_e2e.test.js';
 import { runFinalRealVerification } from '../tests/final_real_verification.js';
+import { ProjectManager } from '../projects/ProjectManager.js';
+import { ConversationStore } from '../agent/conversation/ConversationStore.js';
+import { PermissionManager } from '../agent/safety/PermissionManager.js';
 
 export function createApiRouter(
   providerRegistry: ProviderRegistry,
   modelRegistry: ModelRegistry,
   gateway: AIGateway,
   agentEngine: AgentEngine,
-  missionControl: MissionControl
+  missionControl: MissionControl,
+  projectManager: ProjectManager = new ProjectManager(),
+  conversationStore: ConversationStore = new ConversationStore(),
+  permissionManager: PermissionManager = new PermissionManager()
 ): Router {
   const router = Router();
 
@@ -320,7 +326,7 @@ export function createApiRouter(
 
   router.post('/agent/run', async (req, res) => {
     try {
-      const { task, modelId, maxSteps, contextMentions, attachments } = req.body;
+      const { task, modelId, maxSteps, contextMentions, attachments, autonomyMode } = req.body;
       if (!task) return res.status(400).json({ error: 'Task is required' });
 
       // Process any uploaded attachments
@@ -338,11 +344,51 @@ export function createApiRouter(
       const mission = missionControl.createMission(task, modelId || 'default');
       missionControl.updateMissionStatus(mission.id, 'RUNNING');
 
+      // Persist Conversation Record
+      const activeProj = projectManager.getActiveProject();
+      const conversationId = req.body.conversationId;
+      let convRecord = conversationId ? conversationStore.getConversation(conversationId) : undefined;
+      if (!convRecord) {
+        convRecord = conversationStore.createConversation({
+          projectId: activeProj.id,
+          taskPrompt: task,
+          modelId: modelId || activeProj.modelId || 'auto',
+          providerId: activeProj.providerId,
+          autonomyMode: autonomyMode || activeProj.autonomyMode || 'AUTONOMOUS',
+        });
+      } else {
+        convRecord.messages.push({
+          id: `msg-${Date.now()}`,
+          role: 'user',
+          content: task,
+          timestamp: new Date().toISOString(),
+        });
+        convRecord.taskStatus = 'WORKING';
+        conversationStore.saveConversation(convRecord);
+      }
+
       const outcome = await agentEngine.processMessage(task, {
         modelId,
-        maxSteps: maxSteps ? Number(maxSteps) : 8,
+        maxSteps: maxSteps ? Number(maxSteps) : 25,
         contextMentions: enrichedContext || undefined,
       });
+
+      const finalAnswer = outcome.answer || (outcome.agentResult?.success ? 'Task completed successfully.' : (outcome.agentResult?.error || 'Task finished.'));
+      convRecord.taskStatus = outcome.agentResult?.success === false ? 'FAILED' : 'COMPLETED';
+      convRecord.messages.push({
+        id: `msg-resp-${Date.now()}`,
+        role: 'assistant',
+        content: finalAnswer,
+        timestamp: new Date().toISOString(),
+        autoModel: outcome.autoModel,
+        stepsCompleted: outcome.agentResult?.totalSteps || 1,
+        openFile: outcome.openFile,
+        openPreview: outcome.openPreview,
+      });
+      if (outcome.agentResult?.activityTimeline) {
+        convRecord.toolEvents = outcome.agentResult.activityTimeline;
+      }
+      conversationStore.saveConversation(convRecord);
 
       if (outcome.actionType === 'agent_task' && outcome.agentResult) {
         if (outcome.agentResult.success) {
@@ -353,27 +399,31 @@ export function createApiRouter(
         res.json({
           success: outcome.agentResult.success,
           actionType: outcome.actionType,
-          summary: outcome.answer,
-          finalAnswer: outcome.answer,
+          summary: finalAnswer,
+          finalAnswer: finalAnswer,
           stepsCompleted: outcome.agentResult.totalSteps,
           steps: outcome.agentResult.steps,
           error: outcome.agentResult.error,
           openFile: outcome.openFile,
           openPreview: outcome.openPreview,
           suggestedActions: outcome.suggestedActions,
+          autoModel: outcome.autoModel,
+          conversationId: convRecord.id,
         });
       } else {
         missionControl.updateMissionStatus(mission.id, 'COMPLETED');
         res.json({
           success: true,
           actionType: outcome.actionType,
-          summary: outcome.answer,
-          finalAnswer: outcome.answer,
+          summary: finalAnswer,
+          finalAnswer: finalAnswer,
           stepsCompleted: 1,
           openFile: outcome.openFile,
           openPreview: outcome.openPreview,
           openTerminal: outcome.openTerminal,
           suggestedActions: outcome.suggestedActions,
+          autoModel: outcome.autoModel,
+          conversationId: convRecord.id,
         });
       }
     } catch (err: any) {
@@ -577,6 +627,156 @@ export function createApiRouter(
       const { selector, text } = req.body;
       const result = await agentEngine.browserAgent.fill(selector, text);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 11. Persistent Projects & Multi-Folder Manager ---
+  router.get('/projects', (req, res) => {
+    try {
+      const projects = projectManager.listProjects();
+      const activeProject = projectManager.getActiveProject();
+      res.json({ projects, activeProject, activeProjectId: activeProject.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects', (req, res) => {
+    try {
+      const { name, folders, providerId, modelId, autonomyMode, gitWorktreeMode, description } = req.body;
+      if (!name) return res.status(400).json({ error: 'Project name is required' });
+      const proj = projectManager.createProject({
+        name,
+        folders: folders && folders.length > 0 ? folders : [agentEngine.workspaceManager.getRootPath()],
+        providerId,
+        modelId,
+        autonomyMode,
+        gitWorktreeMode,
+        description,
+      });
+      agentEngine.workspaceManager.setRootPath(proj.activeWorkspace);
+      res.json(proj);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/projects/:id', (req, res) => {
+    try {
+      const proj = projectManager.updateProject(req.params.id, req.body);
+      res.json(proj);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/projects/:id', (req, res) => {
+    try {
+      const deleted = projectManager.deleteProject(req.params.id);
+      res.json({ success: deleted });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:id/switch', (req, res) => {
+    try {
+      const proj = projectManager.setActiveProject(req.params.id);
+      agentEngine.workspaceManager.setRootPath(proj.activeWorkspace);
+      res.json({ success: true, project: proj });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:id/folders', (req, res) => {
+    try {
+      const { folderPath } = req.body;
+      if (!folderPath) return res.status(400).json({ error: 'folderPath is required' });
+      const proj = projectManager.addFolder(req.params.id, folderPath);
+      res.json(proj);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/projects/:id/folders', (req, res) => {
+    try {
+      const { folderPath } = req.body;
+      if (!folderPath) return res.status(400).json({ error: 'folderPath is required' });
+      const proj = projectManager.removeFolder(req.params.id, folderPath);
+      res.json(proj);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 12. Persistent Conversations & History Search ---
+  router.get('/conversations', (req, res) => {
+    try {
+      const projectId = req.query.projectId as string;
+      const list = projectId ? conversationStore.listByProject(projectId) : conversationStore.listAll();
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/conversations/search', (req, res) => {
+    try {
+      const q = (req.query.q as string) || '';
+      const results = conversationStore.search(q);
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/conversations/:id', (req, res) => {
+    try {
+      const conv = conversationStore.getConversation(req.params.id);
+      if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+      res.json(conv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/conversations/:id', (req, res) => {
+    try {
+      const deleted = conversationStore.deleteConversation(req.params.id);
+      res.json({ success: deleted });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 13. Persistent Permissions ---
+  router.get('/permissions/:projectId', (req, res) => {
+    try {
+      const grants = permissionManager.getProjectPermissions(req.params.projectId);
+      res.json(grants);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/permissions/:projectId', (req, res) => {
+    try {
+      const updated = permissionManager.updateProjectPermissions(req.params.projectId, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 14. Interrupted Task Recovery ---
+  router.get('/system/recovery', (req, res) => {
+    try {
+      const tasks = conversationStore.getInterruptedTasks();
+      res.json({ interruptedTasks: tasks });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

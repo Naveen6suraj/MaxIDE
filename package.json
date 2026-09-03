@@ -4,8 +4,13 @@
   "type": "module",
   "description": "MaxIDE — AI-Native Software Engineering Studio with Unlimited Local & Cloud AI Providers",
   "main": "dist/server/index.js",
+  "bin": {
+    "maxide": "./bin/maxide.js"
+  },
   "scripts": {
     "build": "tsc",
+    "package": "tsc && powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:dist\\MaxIDE.exe /r:System.Windows.Forms.dll desktop\\MaxIDE.cs; Copy-Item dist\\MaxIDE.exe MaxIDE.exe -Force\"",
+    "desktop": "powershell -ExecutionPolicy Bypass -Command \"Start-Process .\\MaxIDE.exe\"",
     "start": "tsx src/server/index.ts",
     "test": "tsx src/tests/acceptance.test.ts",
     "test:e2e": "tsx src/tests/ide_e2e.test.ts",
@@ -15,7 +20,8 @@
     "test:simulate": "tsx src/tests/ui_user_simulation.ts",
     "test:agentic": "tsx src/tests/final_agentic_execution.test.ts",
     "test:formats": "tsx src/tests/universal_formats.test.ts",
-    "test:ui": "tsx src/tests/real_ui_acceptance.test.ts"
+    "test:ui": "tsx src/tests/real_ui_acceptance.test.ts",
+    "test:desktop": "tsx src/tests/desktop_persistence.test.ts"
   },
   "keywords": [
     "maxide",
