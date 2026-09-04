@@ -20,6 +20,7 @@ import { ProjectManager } from '../projects/ProjectManager.js';
 import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
+import { PreviewManager } from './preview/PreviewManager.js';
 
 dotenv.config();
 
@@ -132,6 +133,13 @@ agentEngine.setConversationStore(conversationStore);
 conversationStore.markInterruptedTasks();
 const missionControl = new MissionControl();
 
+const previewManager = new PreviewManager(
+  agentEngine.workspaceManager,
+  projectManager,
+  agentEngine.devServerManager,
+  PORT
+);
+
 // Seed initial default provider templates if empty
 if (providerRegistry.getAllProviders().length === 0) {
   providerRegistry.registerProvider({
@@ -218,7 +226,8 @@ app.use('/api', createApiRouter(
   projectManager,
   conversationStore,
   permissionManager,
-  recoveryManager
+  recoveryManager,
+  previewManager
 ));
 
 // API Error handling middleware (catches body-parser errors, 413s, etc.)
@@ -233,19 +242,50 @@ app.use((err: any, req: any, res: any, next: any) => {
   next();
 });
 
-// Serve Live Preview of Generated Websites & Portfolio
-const portfolioDir = path.resolve(__dirname, '../../portfolio');
-if (!fs.existsSync(portfolioDir)) fs.mkdirSync(portfolioDir, { recursive: true });
-app.use('/workspace-preview', (req, res, next) => {
-  const currentRoot = agentEngine.workspaceManager.getRootPath();
-  express.static(currentRoot)(req, res, next);
+// 1. Dedicated Generic Workspace Preview (active workspace)
+app.use('/workspace-preview', (req, res) => {
+  previewManager.handleWorkspacePreview(req, res);
 });
 
-// Serve UI static files
+// 2. Dedicated Multi-Project Isolated Preview (/project-preview/:projectIdOrName/*)
+app.use('/project-preview/:projectIdOrName', (req, res) => {
+  previewManager.handleProjectPreview(req, res);
+});
+
+// 3. Dynamic Project / Subdirectory Interceptor (e.g. /modern-web-app/index.html)
+app.use((req, res, next) => {
+  previewManager.handleDynamicProjectOrFolder(req, res, next);
+});
+
+// 4. Serve UI static files
 const uiDir = path.resolve(__dirname, '../ui');
 app.use(express.static(uiDir));
 
+// 5. Protected SPA Fallback Handler: NEVER swallow user preview routes or file assets
 app.get('*', (req, res) => {
+  if (
+    req.path.startsWith('/workspace-preview') ||
+    req.path.startsWith('/project-preview') ||
+    req.path.startsWith('/api')
+  ) {
+    return res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8').send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>404 Not Found - MaxIDE</title></head>
+      <body style="font-family:sans-serif;padding:2rem;background:#0f172a;color:#cbd5e1;">
+        <h2>Preview Resource Not Found</h2>
+        <p>The requested route <code>${req.path}</code> was not found in project workspace.</p>
+      </body>
+      </html>
+    `);
+  }
+
+  // If request has a file extension (.html, .css, .js, .png, etc.), it is an asset request, NOT an SPA navigation route!
+  if (path.extname(req.path)) {
+    return res.status(404).setHeader('Content-Type', 'text/plain').send(`File Not Found: ${req.path}`);
+  }
+
+  // Genuine client-side frontend navigation route
   res.sendFile(path.join(uiDir, 'index.html'));
 });
 

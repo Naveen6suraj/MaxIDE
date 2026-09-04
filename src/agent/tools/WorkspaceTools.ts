@@ -21,25 +21,35 @@ import { CodebaseIntelligence } from '../intelligence/CodebaseIntelligence.js';
 import { ContentSanitizer } from '../safety/ContentSanitizer.js';
 
 export class DevServerManager {
-  private activeServers: Map<string, { process: ChildProcess; port?: number; command: string }> = new Map();
+  private activeServers: Map<string, { process: ChildProcess; port?: number; command: string; cwd?: string }> = new Map();
 
   public startServer(id: string, command: string, cwd: string, port?: number): Promise<{ success: boolean; message: string; port?: number }> {
     return new Promise((resolve) => {
       try {
-        const child = spawn(command, { cwd, shell: true });
-        this.activeServers.set(id, { process: child, port, command });
+        const resolvedCwd = path.resolve(cwd);
+        const child = spawn(command, { cwd: resolvedCwd, shell: true });
+        this.activeServers.set(id, { process: child, port, command, cwd: resolvedCwd });
 
-        child.on('error', (err) => {
+        const cleanup = () => {
           this.activeServers.delete(id);
-        });
+        };
+
+        child.on('error', cleanup);
+        child.on('exit', cleanup);
+        child.on('close', cleanup);
 
         // Give process 500ms to verify startup
         setTimeout(() => {
-          resolve({
-            success: true,
-            message: `Dev server "${id}" started with command: "${command}"`,
-            port,
-          });
+          if (child.exitCode !== null || child.killed) {
+            this.activeServers.delete(id);
+            resolve({ success: false, message: `Dev server "${id}" exited immediately with code ${child.exitCode}` });
+          } else {
+            resolve({
+              success: true,
+              message: `Dev server "${id}" started with command: "${command}"`,
+              port,
+            });
+          }
         }, 500);
       } catch (err: any) {
         resolve({ success: false, message: `Failed to start server: ${err.message}` });
@@ -57,12 +67,41 @@ export class DevServerManager {
     return true;
   }
 
-  public getActiveServers(): Array<{ id: string; command: string; port?: number }> {
-    return Array.from(this.activeServers.entries()).map(([id, s]) => ({
-      id,
-      command: s.command,
-      port: s.port,
-    }));
+  public stopServersForWorkspace(cwd: string): void {
+    const norm = path.resolve(cwd).toLowerCase();
+    for (const [id, s] of this.activeServers.entries()) {
+      if (s.cwd && path.resolve(s.cwd).toLowerCase() === norm) {
+        try { s.process.kill(); } catch {}
+        this.activeServers.delete(id);
+      }
+    }
+  }
+
+  public getActiveServers(forCwd?: string): Array<{ id: string; command: string; port?: number; cwd?: string }> {
+    const normCwd = forCwd ? path.resolve(forCwd).toLowerCase() : null;
+    const result: Array<{ id: string; command: string; port?: number; cwd?: string }> = [];
+
+    for (const [id, s] of this.activeServers.entries()) {
+      // Check if process is still alive
+      if ((s.process as any).exitCode !== null && (s.process as any).exitCode !== undefined) {
+        this.activeServers.delete(id);
+        continue;
+      }
+      if ((s.process as any).killed) {
+        this.activeServers.delete(id);
+        continue;
+      }
+      if (normCwd && s.cwd && path.resolve(s.cwd).toLowerCase() !== normCwd) {
+        continue;
+      }
+      result.push({
+        id,
+        command: s.command,
+        port: s.port,
+        cwd: s.cwd,
+      });
+    }
+    return result;
   }
 }
 

@@ -1502,9 +1502,19 @@
       }
     }
 
-    function openLivePreviewInNewTab() {
+    async function openLivePreviewInNewTab() {
       const urlInput = document.getElementById('browser-test-url');
-      const url = urlInput ? urlInput.value : '/workspace-preview/index.html';
+      let url = urlInput ? urlInput.value : '';
+      if (!url || url === '/workspace-preview/index.html') {
+        try {
+          const res = await fetch('/api/preview/info');
+          if (res.ok) {
+            const info = await res.json();
+            if (info.previewUrl) url = info.previewUrl;
+          }
+        } catch {}
+      }
+      if (!url) url = '/workspace-preview/index.html';
       const fullUrl = url.startsWith('http') ? url : (window.location.origin + url);
       window.open(fullUrl, '_blank');
     }
@@ -1758,8 +1768,9 @@
 
         let cardHtml = '';
         const actionPills = [];
-        if (outcome.openPreview || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
-          const previewTarget = outcome.openPreview || `/workspace-preview/${outcome.openFile}`;
+        const activePreviewUrl = outcome.previewInfo?.previewUrl || outcome.openPreview;
+        if (activePreviewUrl || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
+          const previewTarget = activePreviewUrl || `/workspace-preview/${outcome.openFile}`;
           actionPills.push(`
             <a href="${previewTarget}" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-md no-underline">
               🌐 Open Website in New Tab ↗
@@ -1884,13 +1895,14 @@
         if (outcome.openFile) {
           openFileInEditor(outcome.openFile);
         }
-        if (outcome.openPreview) {
+        const targetPreview = outcome.previewInfo?.previewUrl || outcome.openPreview;
+        if (targetPreview) {
           switchBottomTab('browser');
           const urlInput = document.getElementById('browser-test-url');
-          if (urlInput) urlInput.value = outcome.openPreview;
+          if (urlInput) urlInput.value = targetPreview;
           const iframe = document.getElementById('browser-preview-iframe');
           if (iframe) {
-            iframe.src = outcome.openPreview + (outcome.openPreview.includes('?') ? '&' : '?') + 't=' + Date.now();
+            iframe.src = targetPreview + (targetPreview.includes('?') ? '&' : '?') + 't=' + Date.now();
           }
         }
         if (outcome.openTerminal) {

@@ -680,21 +680,72 @@ export class AgentEngine {
           const p = args?.path;
           if (p) {
             detectedOpenFile = p;
-            if (p.endsWith('.html')) detectedOpenPreview = `/workspace-preview/${p}`;
+            if (p.endsWith('.html')) {
+              const cleanRel = p.replace(/\\/g, '/').replace(/^\.?\/+/, '');
+              detectedOpenPreview = `/workspace-preview/${cleanRel}`;
+            }
           }
         }
         if (tc.name === 'open_preview') {
-          detectedOpenPreview = args?.url || '/workspace-preview/index.html';
+          const rootPath = this.workspaceManager.getRootPath();
+          const rawUrl = args?.url || '';
+          if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+            const isLocal = rawUrl.includes('localhost') || rawUrl.includes('127.0.0.1');
+            const hasDevServer = this.devServerManager.getActiveServers(rootPath).length > 0;
+            if (!isLocal || hasDevServer) {
+              detectedOpenPreview = rawUrl;
+            }
+          } else {
+            const cleanRel = rawUrl.replace(/^\/workspace-preview\/?/, '').replace(/^\.?\/+/, '') || 'index.html';
+            detectedOpenPreview = `/workspace-preview/${cleanRel}`;
+          }
         }
       }
     }
 
-    // Default to index.html preview if index.html exists in workspace
     const rootPath = this.workspaceManager.getRootPath();
+
+    // Dev server detection (running Vite/React/Node on custom port)
+    if (!detectedOpenPreview) {
+      const runningServers = this.devServerManager.getActiveServers(rootPath);
+      const serverWithPort = runningServers.find(s => typeof s.port === 'number' && s.port > 0);
+      if (serverWithPort) {
+        detectedOpenPreview = `http://127.0.0.1:${serverWithPort.port}`;
+      }
+    }
+
+    // Intelligent entry point detection if not already detected
     const lowerTask = taskPrompt.toLowerCase();
-    if (!detectedOpenPreview && fs.existsSync(path.join(rootPath, 'index.html'))) {
-      detectedOpenPreview = '/workspace-preview/index.html';
-      if (!detectedOpenFile) detectedOpenFile = 'index.html';
+    if (!detectedOpenPreview) {
+      const candidates = [
+        'index.html',
+        'public/index.html',
+        'dist/index.html',
+        'build/index.html',
+        'src/index.html',
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(path.join(rootPath, c))) {
+          detectedOpenPreview = `/workspace-preview/${c}`;
+          if (!detectedOpenFile) detectedOpenFile = c;
+          break;
+        }
+      }
+      if (!detectedOpenPreview) {
+        try {
+          const entries = fs.readdirSync(rootPath, { withFileTypes: true });
+          for (const e of entries) {
+            if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules') {
+              const subIdx = path.join(rootPath, e.name, 'index.html');
+              if (fs.existsSync(subIdx)) {
+                detectedOpenPreview = `/workspace-preview/${e.name}/index.html`;
+                if (!detectedOpenFile) detectedOpenFile = `${e.name}/index.html`;
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
     }
 
     // Task Completion Physical Verification:

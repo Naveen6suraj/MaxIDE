@@ -137,6 +137,10 @@ export class WorkspaceManager {
    * symlink escapes, null-byte manipulation, and sibling escapes.
    */
   public resolveSafePath(relPath: string): string {
+    return WorkspaceManager.resolveSafePathForRoot(this.rootPath, relPath);
+  }
+
+  public static resolveSafePathForRoot(rootDir: string, relPath: string): string {
     if (!relPath || typeof relPath !== 'string') {
       throw new Error('Invalid path: path must be a non-empty string.');
     }
@@ -158,7 +162,7 @@ export class WorkspaceManager {
       throw new Error(`Security Violation: Device paths are not permitted: "${relPath}"`);
     }
 
-    const normalizedRoot = path.normalize(this.rootPath);
+    const normalizedRoot = path.normalize(rootDir);
     const rootLower = normalizedRoot.toLowerCase();
     const rootWithSep = rootLower.endsWith(path.sep) ? rootLower : rootLower + path.sep;
 
@@ -174,7 +178,7 @@ export class WorkspaceManager {
     }
 
     // Resolve relative to root
-    const abs = path.resolve(this.rootPath, decoded);
+    const abs = path.resolve(rootDir, decoded);
     const normalizedAbs = path.normalize(abs);
     const absLower = normalizedAbs.toLowerCase();
 

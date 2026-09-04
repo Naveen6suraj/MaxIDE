@@ -183,6 +183,22 @@ export class ProjectManager {
     return this.projects.get(id);
   }
 
+  public findProjectByNameOrId(nameOrId: string): ProjectMetadata | undefined {
+    if (!nameOrId) return undefined;
+    const direct = this.projects.get(nameOrId);
+    if (direct) return direct;
+    const lower = nameOrId.toLowerCase().trim();
+    for (const proj of this.projects.values()) {
+      if (proj.id.toLowerCase() === lower || proj.name.toLowerCase() === lower) {
+        return proj;
+      }
+      if (proj.activeWorkspace && path.basename(proj.activeWorkspace).toLowerCase() === lower) {
+        return proj;
+      }
+    }
+    return undefined;
+  }
+
   public getActiveProject(): ProjectMetadata {
     if (!this.activeProjectId || !this.projects.has(this.activeProjectId)) {
       this.ensureDefaultProject();

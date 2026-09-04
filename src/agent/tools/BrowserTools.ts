@@ -88,6 +88,26 @@ export class BrowserVerificationAgent {
       this.session.pageTitle = title;
       this.session.lastHtml = html.slice(0, 5000);
 
+      // Preview Identity Check (Requirements 18 & 19): Verify loaded page is not MaxIDE UI
+      const isMaxIDE = html.includes('id="monaco-container"') || 
+                       html.includes('MaxIDE — AI Software Engineering Studio') || 
+                       html.includes('MaxIDE Verification Battery');
+
+      const isPreviewAttempt = url.includes('/workspace-preview') || 
+                               url.includes('/project-preview') || 
+                               (!url.endsWith(':3456') && !url.endsWith(':3456/'));
+
+      if (isMaxIDE && isPreviewAttempt) {
+        const errMsg = 'Preview routing returned MaxIDE instead of the user application. Target preview URL was intercepted by MaxIDE SPA fallback handler.';
+        this.logs.push({ type: 'error', text: errMsg, timestamp: new Date().toISOString() });
+        return {
+          success: false,
+          status: 500,
+          title: 'Preview Routing Error (MaxIDE Interception)',
+          errors: [errMsg],
+        };
+      }
+
       const recentErrors = this.logs.filter(l => l.type === 'error' || l.type === 'pageerror').map(l => l.text);
 
       return {
@@ -176,6 +196,31 @@ export class BrowserVerificationAgent {
     }
   }
 
+  public async verifyApplicationLoaded(options?: { expectedKeyword?: string }): Promise<{ verified: boolean; reason: string }> {
+    try {
+      const page = await this.ensurePage();
+      const content = await page.content();
+      if (content.includes('id="monaco-container"') || content.includes('MaxIDE — AI Software Engineering Studio')) {
+        return {
+          verified: false,
+          reason: 'Preview routing returned MaxIDE instead of the user application.',
+        };
+      }
+      if (options?.expectedKeyword) {
+        const found = content.toLowerCase().includes(options.expectedKeyword.toLowerCase());
+        if (!found) {
+          return {
+            verified: false,
+            reason: `Expected keyword "${options.expectedKeyword}" not found in application DOM.`,
+          };
+        }
+      }
+      return { verified: true, reason: 'Application page verified with zero MaxIDE UI leakage.' };
+    } catch (err: any) {
+      return { verified: false, reason: err.message };
+    }
+  }
+
   public async close(): Promise<void> {
     try {
       if (this.page) await this.page.close();
@@ -197,7 +242,7 @@ export function createBrowserTools(browserAgent: BrowserVerificationAgent): Exec
         parameters: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'URL to navigate to (e.g. http://localhost:3000)' },
+            url: { type: 'string', description: 'URL or relative path to navigate to (e.g. "/workspace-preview/index.html" or active dev server URL)' },
           },
           required: ['url'],
         },
@@ -284,6 +329,22 @@ export function createBrowserTools(browserAgent: BrowserVerificationAgent): Exec
       permissionLevel: 'SAFE',
       execute: async () => {
         return { logs: browserAgent.getLogs() };
+      },
+    },
+    {
+      definition: {
+        name: 'browser_verify_app',
+        description: 'Verify that the currently loaded page is the genuine user application and not MaxIDE Studio UI.',
+        parameters: {
+          type: 'object',
+          properties: {
+            expectedKeyword: { type: 'string', description: 'Keyword or element text expected in application DOM (e.g. "Tic-Tac-Toe", "Weather")' },
+          },
+        },
+      },
+      permissionLevel: 'SAFE',
+      execute: async (args: { expectedKeyword?: string }) => {
+        return browserAgent.verifyApplicationLoaded(args);
       },
     },
   ];

@@ -21,6 +21,7 @@ import { ProjectManager } from '../projects/ProjectManager.js';
 import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { PathManager } from '../config/PathManager.js';
+import { PreviewManager } from './preview/PreviewManager.js';
 
 export function createApiRouter(
   providerRegistry: ProviderRegistry,
@@ -31,7 +32,8 @@ export function createApiRouter(
   projectManager: ProjectManager = new ProjectManager(),
   conversationStore: ConversationStore = new ConversationStore(),
   permissionManager: PermissionManager = new PermissionManager(),
-  recoveryManager?: RecoveryManager
+  recoveryManager?: RecoveryManager,
+  previewManager?: PreviewManager
 ): Router {
   const router = Router();
 
@@ -52,6 +54,52 @@ export function createApiRouter(
       });
     } catch (err: any) {
       res.status(500).json({ status: 'error', error: err.message });
+    }
+  });
+
+  // --- 0.1 Dedicated Preview API ---
+  router.get('/preview/info', (req, res) => {
+    try {
+      const projectId = req.query.projectId as string | undefined;
+      if (previewManager) {
+        return res.json(previewManager.getPreviewInfo(projectId));
+      }
+      const activeProject = projectManager.getActiveProject();
+      const rootDir = activeProject?.activeWorkspace || agentEngine.workspaceManager.getRootPath();
+      res.json({
+        type: 'static',
+        previewUrl: '/workspace-preview/index.html',
+        fullUrl: 'http://127.0.0.1:3456/workspace-preview/index.html',
+        entryFile: 'index.html',
+        projectPath: rootDir,
+        projectName: activeProject?.name || 'Default Project',
+        projectId: activeProject?.id || 'default',
+        port: 3456,
+        serverRunning: false,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/preview/verify', async (req, res) => {
+    try {
+      const { url } = req.body;
+      const targetUrl = url || (previewManager ? previewManager.getPreviewInfo().previewUrl : '/workspace-preview/index.html');
+      const fullUrl = targetUrl.startsWith('http') ? targetUrl : `http://127.0.0.1:3456${targetUrl}`;
+      const response = await fetch(fullUrl);
+      const resText = await response.text();
+      const check = PreviewManager.verifyPreviewNotMaxIDE(resText);
+      res.json({
+        url: fullUrl,
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        isMaxIDE: check.isMaxIDE,
+        marker: check.marker,
+        verified: !check.isMaxIDE && response.status < 400,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message, verified: false });
     }
   });
 
@@ -471,6 +519,7 @@ export function createApiRouter(
           error: outcome.agentResult.error,
           openFile: outcome.openFile,
           openPreview: outcome.openPreview,
+          previewInfo: previewManager ? previewManager.getPreviewInfo(convRecord.projectId) : undefined,
           suggestedActions: outcome.suggestedActions,
           autoModel: outcome.autoModel,
           conversationId: convRecord.id,
@@ -485,6 +534,7 @@ export function createApiRouter(
           stepsCompleted: 1,
           openFile: outcome.openFile,
           openPreview: outcome.openPreview,
+          previewInfo: previewManager ? previewManager.getPreviewInfo(convRecord.projectId) : undefined,
           openTerminal: outcome.openTerminal,
           suggestedActions: outcome.suggestedActions,
           autoModel: outcome.autoModel,
