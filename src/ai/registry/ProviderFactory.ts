@@ -6,6 +6,7 @@
  */
 
 import { AIProvider, AIProviderConfig } from '../core/AIProvider.js';
+import { OpenAIProvider } from '../providers/openai/OpenAIProvider.js';
 import { OpenAICompatibleProvider } from '../providers/openai-compatible/OpenAICompatibleProvider.js';
 import { OllamaProvider } from '../providers/ollama/OllamaProvider.js';
 import { GeminiProvider } from '../providers/gemini/GeminiProvider.js';
@@ -20,6 +21,7 @@ export class ProviderFactory {
 
   static {
     // Register built-in adapters
+    this.registerAdapter('openai', (cfg) => new OpenAIProvider(cfg));
     this.registerAdapter('openai_compatible', (cfg) => new OpenAICompatibleProvider(cfg));
     this.registerAdapter('ollama', (cfg) => new OllamaProvider(cfg));
     this.registerAdapter('gemini', (cfg) => new GeminiProvider(cfg));

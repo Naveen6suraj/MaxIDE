@@ -64,9 +64,14 @@ export class FallbackManager {
 
       const provider = this.providerRegistry.getProvider(entry.providerId);
       if (!provider || !provider.isEnabled) continue;
-      if (!this.privacyManager.isProviderAllowed(provider)) continue;
-      const needsCloudKey = provider.type === 'cloud' && ['gemini', 'groq', 'anthropic'].includes(provider.config.apiType);
-      if (needsCloudKey && !provider.config.apiKey) continue;
+      const isCloud = provider.type === 'cloud';
+      const isCustomOrMock = provider.config.apiType === 'custom' || provider.config.apiType === 'openai_compatible';
+      const hasKey = !isCloud || isCustomOrMock || Boolean(provider.config.apiKey ||
+        (provider.config.apiType === 'openai' ? process.env.OPENAI_API_KEY :
+         provider.config.apiType === 'gemini' ? process.env.GEMINI_API_KEY :
+         provider.config.apiType === 'anthropic' ? process.env.ANTHROPIC_API_KEY :
+         provider.config.apiType === 'groq' ? process.env.GROQ_API_KEY : ''));
+      if (isCloud && !hasKey) continue;
 
       // Find model for this fallback
       let model: AIModel | undefined;
@@ -98,8 +103,14 @@ export class FallbackManager {
     for (const provider of this.providerRegistry.getAllProviders()) {
       if (seenProviders.has(provider.id) || !provider.isEnabled) continue;
       if (!this.privacyManager.isProviderAllowed(provider)) continue;
-      const needsCloudKey = provider.type === 'cloud' && ['gemini', 'groq', 'anthropic'].includes(provider.config.apiType);
-      if (needsCloudKey && !provider.config.apiKey) continue;
+      const isCloud = provider.type === 'cloud';
+      const isCustomOrMock = provider.config.apiType === 'custom' || provider.config.apiType === 'openai_compatible';
+      const hasKey = !isCloud || isCustomOrMock || Boolean(provider.config.apiKey ||
+        (provider.config.apiType === 'openai' ? process.env.OPENAI_API_KEY :
+         provider.config.apiType === 'gemini' ? process.env.GEMINI_API_KEY :
+         provider.config.apiType === 'anthropic' ? process.env.ANTHROPIC_API_KEY :
+         provider.config.apiType === 'groq' ? process.env.GROQ_API_KEY : ''));
+      if (isCloud && !hasKey) continue;
 
       const provModels = this.modelRegistry.searchModels({ providerId: provider.id });
       for (const model of provModels) {

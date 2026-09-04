@@ -8,7 +8,7 @@
 
 import { ProviderRegistry } from '../registry/ProviderRegistry.js';
 import { ModelRegistry } from '../registry/ModelRegistry.js';
-import { PrivacyManager } from './PrivacyManager.js';
+import { PrivacyManager, PrivacyViolationError } from './PrivacyManager.js';
 import { ModelRouter, TaskRequirements } from './ModelRouter.js';
 import { FallbackManager, FallbackEntry } from './FallbackManager.js';
 import { AIRequest, AIToolRequest } from '../core/AIRequest.js';
@@ -96,6 +96,9 @@ export class AIGateway {
         this.recordMetrics(provider.id, model.id, response.usage);
         return response;
       } catch (err: any) {
+        if (err instanceof PrivacyViolationError || err.name === 'PrivacyViolationError' || err.message?.includes('LOCAL ONLY PRIVACY MODE')) {
+          throw err;
+        }
         lastError = err;
         console.warn(`[AIGateway] Provider "${provider.name}" failed: ${err.message}. Falling back to next eligible...`);
       }
@@ -138,6 +141,9 @@ export class AIGateway {
         this.recordMetrics(provider.id, model.id, { promptTokens: 50, completionTokens: 50, totalTokens: 100 });
         break;
       } catch (err: any) {
+        if (err instanceof PrivacyViolationError || err.name === 'PrivacyViolationError' || err.message?.includes('LOCAL ONLY PRIVACY MODE')) {
+          throw err;
+        }
         lastError = err;
         console.warn(`[AIGateway Stream] Provider "${provider.name}" error: ${err.message}. Cascading...`);
       }
@@ -187,6 +193,9 @@ export class AIGateway {
         this.recordMetrics(provider.id, model.id, { promptTokens: 100, completionTokens: 80, totalTokens: 180 });
         break;
       } catch (err: any) {
+        if (err instanceof PrivacyViolationError || err.name === 'PrivacyViolationError' || err.message?.includes('LOCAL ONLY PRIVACY MODE')) {
+          throw err;
+        }
         lastError = err;
         console.warn(`[AIGateway Tools] Provider "${provider.name}" tool call error: ${err.message}. Trying next fallback...`);
       }

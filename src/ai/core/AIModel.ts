@@ -9,6 +9,7 @@ export interface AIModelCapabilities {
   toolCalling: boolean;
   vision: boolean;
   codeGeneration: boolean;
+  codeCompletion?: boolean;
   reasoning?: boolean;
 }
 

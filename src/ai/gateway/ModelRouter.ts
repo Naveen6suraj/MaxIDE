@@ -87,21 +87,47 @@ export class ModelRouter {
   public route(requirements: TaskRequirements): RouteResolution {
     const isLocalOnly = this.privacyManager.getMode() === 'local';
 
-    // 1. If explicit user preference is given and satisfies capabilities & privacy
-    if (requirements.userPreferredModelId && requirements.userPreferredModelId !== 'auto') {
+    // Category-based routing handling
+    const pref = (requirements.userPreferredModelId || 'auto').toLowerCase();
+    if (pref === 'coding' || pref === 'category:coding') {
+      requirements.requiresCodeGeneration = true;
+      requirements.requiresToolCalling = true;
+    } else if (pref === 'reasoning' || pref === 'category:reasoning') {
+      requirements.requiresReasoning = true;
+    } else if (pref === 'fast' || pref === 'category:fast') {
+      requirements.preferSpeed = true;
+    }
+
+    const isCategorySelection = ['auto', 'coding', 'reasoning', 'fast', 'balanced', 'category:coding', 'category:reasoning', 'category:fast', 'category:balanced'].includes(pref);
+
+    // 1. If explicit user preference for a specific model is given
+    if (!isCategorySelection && requirements.userPreferredModelId) {
       const targetModel = this.modelRegistry.getModel(requirements.userPreferredModelId);
       if (targetModel) {
         const provider = this.providerRegistry.getProvider(targetModel.providerId);
         if (provider && provider.isEnabled) {
-          // Enforce privacy guard: if in Local Only mode and user explicitly requested a cloud model, reject immediately!
-          this.privacyManager.validateDispatch(provider, targetModel);
-          this.validateCapabilities(targetModel, requirements);
-          return {
-            provider,
-            model: targetModel,
-            score: 100,
-            rationale: `Direct user selection: ${targetModel.name} (${provider.name})`,
-          };
+          const isCustomOrMock = provider.config.apiType === 'custom' || provider.config.apiType === 'openai_compatible';
+          const hasCloudKey = (provider.type === 'cloud' && !isCustomOrMock)
+            ? Boolean(provider.config.apiKey ||
+              (provider.config.apiType === 'openai' ? process.env.OPENAI_API_KEY :
+               provider.config.apiType === 'gemini' ? process.env.GEMINI_API_KEY :
+               provider.config.apiType === 'anthropic' ? process.env.ANTHROPIC_API_KEY :
+               provider.config.apiType === 'groq' ? process.env.GROQ_API_KEY : ''))
+            : true;
+
+          const health = this.providerRegistry.getCachedHealth(provider.id);
+          const isUsable = hasCloudKey && (health?.status !== 'offline' || provider.type === 'local' || isCustomOrMock);
+
+          if (isUsable) {
+            this.privacyManager.validateDispatch(provider, targetModel);
+            this.validateCapabilities(targetModel, requirements);
+            return {
+              provider,
+              model: targetModel,
+              score: 100,
+              rationale: `Selected ${targetModel.name} via ${provider.name}`,
+            };
+          }
         }
       }
     }
@@ -120,15 +146,15 @@ export class ModelRouter {
     if (candidates.length === 0) {
       if (isLocalOnly) {
         throw new CapabilityMismatchError(
-          'This operation requires capabilities unavailable in your configured local models. Configure a local model (e.g. Ollama with tool support) or adjust task requirements.'
+          'This operation requires capabilities unavailable in your configured local models. Configure a local model or adjust task requirements.'
         );
       }
       throw new CapabilityMismatchError(
-        'No active model matches the required capabilities for this task. Please enable a compatible provider or add a model.'
+        'No active model matches the required capabilities for this task. Please connect an AI provider in Settings.'
       );
     }
 
-    // 3. Score candidates based on speed, context window, specialized architecture, and provider latency
+    // 3. Score candidates based on provider configuration, health, speed, and specialization
     let bestCandidate: RouteResolution | null = null;
     let highestScore = -Infinity;
 
@@ -137,44 +163,60 @@ export class ModelRouter {
       if (!provider || !provider.isEnabled) continue;
       if (!this.privacyManager.isProviderAllowed(provider)) continue;
 
+      const hasCloudKey = provider.type === 'cloud'
+        ? Boolean(provider.config.apiKey ||
+          (provider.config.apiType === 'openai' ? process.env.OPENAI_API_KEY :
+           provider.config.apiType === 'gemini' ? process.env.GEMINI_API_KEY :
+           provider.config.apiType === 'anthropic' ? process.env.ANTHROPIC_API_KEY :
+           provider.config.apiType === 'groq' ? process.env.GROQ_API_KEY : ''))
+        : true;
+
+      // Skip cloud providers without API key
+      if (provider.type === 'cloud' && !hasCloudKey) {
+        continue;
+      }
+
       let score = 50;
       const health = this.providerRegistry.getCachedHealth(provider.id);
 
-      if (health?.status === 'online') score += 20;
-      if (health?.status === 'offline') score -= 50;
-
-      // Latency bonus
-      if (health?.latencyMs && health.latencyMs < 100) score += 15;
-
-      // Context window fit
-      if (requirements.estimatedTokens && candidate.contextWindow) {
-        if (candidate.contextWindow >= requirements.estimatedTokens * 1.5) score += 10;
-        else if (candidate.contextWindow < requirements.estimatedTokens) score -= 30;
+      // Penalize offline local providers
+      if (health?.status === 'offline') {
+        score -= 60;
+      } else if (health?.status === 'online') {
+        score += 25;
       }
 
+      // Prioritize high-quality cloud models over weak local models when cloud is available
+      if (provider.type === 'cloud' && hasCloudKey) {
+        score += 35;
+      }
+
+      // Latency bonus
+      if (health?.latencyMs && health.latencyMs < 150) score += 15;
+
       // Preference bonuses
-      if (requirements.preferLocal && candidate.local) score += 25;
-      if (requirements.preferSpeed && (provider.config.apiType === 'groq' || candidate.local)) score += 20;
+      if (requirements.preferLocal && candidate.local) score += 40;
+      if (requirements.preferSpeed && (provider.config.apiType === 'groq' || candidate.id.includes('mini') || candidate.id.includes('flash') || candidate.id.includes('instant'))) score += 30;
 
       // Specialized architecture bonuses for task fit
       if (requirements.requiresReasoning) {
-        if (candidate.id.includes('nemotron') || candidate.id.includes('minimax') || candidate.capabilities.reasoning) {
-          score += 35;
+        if (candidate.id.includes('o1') || candidate.id.includes('o3') || candidate.id.includes('nemotron') || candidate.id.includes('pro') || candidate.capabilities.reasoning) {
+          score += 40;
         }
       }
 
       if (requirements.requiresCodeGeneration || requirements.requiresToolCalling) {
-        if (candidate.id.includes('qwen') || candidate.id.includes('coder') || candidate.id.includes('gemma4')) {
-          score += 30;
+        if (candidate.id.includes('gpt-4o') || candidate.id.includes('flash') || candidate.id.includes('sonnet') || candidate.id.includes('coder') || candidate.id.includes('qwen')) {
+          score += 35;
         }
       }
 
       if (score > highestScore) {
         highestScore = score;
-        let specializationRationale = 'Auto-routed based on capabilities and latency';
-        if (requirements.requiresReasoning && (candidate.id.includes('nemotron') || candidate.id.includes('minimax'))) {
-          specializationRationale = `Auto-selected ${candidate.name} (Specialized for Deep Reasoning & Logic)`;
-        } else if ((requirements.requiresCodeGeneration || requirements.requiresToolCalling) && (candidate.id.includes('qwen') || candidate.id.includes('gemma4'))) {
+        let specializationRationale = 'Auto-routed based on configured providers and capabilities';
+        if (requirements.requiresReasoning) {
+          specializationRationale = `Auto-selected ${candidate.name} (Specialized for Reasoning & Logic)`;
+        } else if (requirements.requiresCodeGeneration || requirements.requiresToolCalling) {
           specializationRationale = `Auto-selected ${candidate.name} (Specialized for Code & Tool Execution)`;
         } else if (requirements.preferSpeed) {
           specializationRationale = `Auto-selected ${candidate.name} (Optimized for Fast Interactive Response)`;
@@ -190,9 +232,30 @@ export class ModelRouter {
     }
 
     if (!bestCandidate) {
-      throw new CapabilityMismatchError('No available and healthy provider matches your requirements.');
+      throw new CapabilityMismatchError('No configured AI provider is available. Connect an AI provider in Settings to activate MaxIDE Agent.');
     }
 
     return bestCandidate;
+  }
+
+  /**
+   * Directly resolve the best model for a category ('AUTO', 'CODING', 'REASONING', 'FAST', 'BALANCED').
+   */
+  public resolveModelForCategory(category: string, mode?: string): AIModel {
+    const cat = (category || 'AUTO').toUpperCase();
+    const requirements: TaskRequirements = {
+      userPreferredModelId: cat,
+      preferLocal: mode === 'local',
+    };
+    if (cat === 'CODING') {
+      requirements.requiresCodeGeneration = true;
+      requirements.requiresToolCalling = true;
+    } else if (cat === 'REASONING') {
+      requirements.requiresReasoning = true;
+    } else if (cat === 'FAST') {
+      requirements.preferSpeed = true;
+    }
+    const resolution = this.route(requirements);
+    return resolution.model;
   }
 }

@@ -88,7 +88,8 @@ export class ClarificationGate {
 
     // Check if there is an active pending clarification session for this conversation
     const activeSession = this.activeSessions.get(sessionId);
-    if (activeSession) {
+    const isExplicitNewTask = this.isAmbiguous(lower) || this.isBeginnerHelp(lower) || /^(build|create|make|scaffold)\s+(me\s+)?(a|an|the|new)\b/i.test(lower);
+    if (activeSession && !isExplicitNewTask) {
       return this.handleClarificationAnswer(trimmed, activeSession, sessionId);
     }
 
@@ -568,8 +569,12 @@ export class ClarificationGate {
   /**
    * Reset any pending clarification session for a given session/conversation.
    */
-  public static clearSession(sessionId: string = 'default'): void {
-    this.activeSessions.delete(sessionId);
-      this.saveSessions();
+  public static clearSession(sessionId?: string): void {
+    if (sessionId) {
+      this.activeSessions.delete(sessionId);
+    } else {
+      this.activeSessions.clear();
+    }
+    this.saveSessions();
   }
 }

@@ -403,8 +403,88 @@ export function createApiRouter(
     res.json(agentEngine.getCurrentPlan() || null);
   });
 
-  router.get('/agent/timeline', (req, res) => {
-    res.json(agentEngine.getTimeline());
+  let activeAbortController: AbortController | null = null;
+
+  router.post('/agent/stop', (req, res) => {
+    if (activeAbortController) {
+      activeAbortController.abort();
+      activeAbortController = null;
+      agentEngine.logActivity('error', 'Agent task execution was stopped by user request.');
+      return res.json({ success: true, message: 'Agent execution stopped.' });
+    }
+    res.json({ success: true, message: 'No running agent task.' });
+  });
+
+  router.post('/agent/stream', async (req, res) => {
+    const { task, modelId, maxSteps, contextMentions, attachments, directory, conversationId } = req.body;
+    if (!task) return res.status(400).json({ error: 'Task is required' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
+
+    activeAbortController = new AbortController();
+
+    req.on('close', () => {
+      if (activeAbortController) {
+        activeAbortController.abort();
+        activeAbortController = null;
+      }
+    });
+
+    const sendEvent = (eventData: any) => {
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify(eventData)}\n\n`);
+      }
+    };
+
+    const unsubscribeTimeline = agentEngine.addTimelineListener((act) => {
+      sendEvent({ type: 'activity', activity: act });
+    });
+
+    const unsubscribePlan = agentEngine.addPlanListener((plan) => {
+      sendEvent({ type: 'plan', plan });
+    });
+
+    try {
+      if (directory && fs.existsSync(directory)) {
+        agentEngine.setWorkspaceRoot(directory);
+      }
+
+      sendEvent({ type: 'status', status: 'PLANNING', text: 'Formulating agent execution plan...' });
+
+      const outcome = await agentEngine.processMessage(task, {
+        modelId,
+        maxSteps: maxSteps ? Number(maxSteps) : 25,
+        contextMentions,
+        sessionId: conversationId,
+      });
+
+      sendEvent({
+        type: 'complete',
+        result: {
+          success: outcome.actionType === 'agent_task' ? (outcome.agentResult?.success ?? true) : true,
+          actionType: outcome.actionType,
+          answer: outcome.answer,
+          finalAnswer: outcome.answer,
+          openFile: outcome.openFile,
+          openPreview: outcome.openPreview,
+          stepsCompleted: outcome.agentResult?.totalSteps || 1,
+          autoModel: outcome.autoModel,
+        },
+      });
+      res.end();
+    } catch (err: any) {
+      sendEvent({ type: 'error', error: err.message || 'Stream processing error' });
+      res.end();
+    } finally {
+      unsubscribeTimeline();
+      unsubscribePlan();
+      activeAbortController = null;
+    }
   });
 
   router.post('/agent/run', async (req, res) => {
@@ -571,6 +651,10 @@ export function createApiRouter(
       if (!config.id || !config.name) {
         return res.status(400).json({ error: 'Provider id and name are required' });
       }
+      const existing = providerRegistry.getProvider(config.id);
+      if (existing && (!config.apiKey || config.apiKey.includes('•••'))) {
+        config.apiKey = existing.config.apiKey;
+      }
       const provider = providerRegistry.registerProvider(config);
       await modelRegistry.discoverProviderModels(provider.id);
       const health = await providerRegistry.checkProviderHealth(provider.id);
@@ -585,7 +669,7 @@ export function createApiRouter(
     res.json({ success: deleted });
   });
 
-  router.post('/providers/:id/test', async (req, res) => {
+  router.all(['/providers/:id/test', '/providers/:id/health'], async (req, res) => {
     try {
       const health = await providerRegistry.checkProviderHealth(req.params.id);
       res.json(health);

@@ -20,6 +20,7 @@ import { ProjectManager } from '../projects/ProjectManager.js';
 import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
+import { AIProviderConfig } from '../ai/core/AIProvider.js';
 import { PreviewManager } from './preview/PreviewManager.js';
 
 dotenv.config();
@@ -141,78 +142,222 @@ const previewManager = new PreviewManager(
 );
 
 // Seed initial default provider templates if empty
-if (providerRegistry.getAllProviders().length === 0) {
-  providerRegistry.registerProvider({
-    id: 'ollama-local',
-    name: 'Ollama Local Engine',
-    type: 'local',
-    apiType: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    defaultModel: 'llama3',
-    isEnabled: true,
-  });
-
-  providerRegistry.registerProvider({
+// Seed initial default provider templates if not registered
+const defaultProviders: AIProviderConfig[] = [
+  {
     id: 'gemini-cloud',
     name: 'Google Gemini',
-    type: 'cloud',
+    type: 'cloud' as const,
     apiType: 'gemini',
     apiKey: process.env.GEMINI_API_KEY || '',
     defaultModel: 'gemini-2.5-flash',
     isEnabled: true,
-  });
-
-  providerRegistry.registerProvider({
+  },
+  {
+    id: 'openai-cloud',
+    name: 'OpenAI',
+    type: 'cloud' as const,
+    apiType: 'openai',
+    apiKey: process.env.OPENAI_API_KEY || '',
+    defaultModel: 'gpt-4o',
+    isEnabled: true,
+  },
+  {
+    id: 'anthropic-cloud',
+    name: 'Anthropic Claude',
+    type: 'cloud' as const,
+    apiType: 'anthropic',
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    defaultModel: 'claude-3-5-sonnet-20241022',
+    isEnabled: true,
+  },
+  {
     id: 'groq-lpu',
     name: 'Groq Cloud LPU',
-    type: 'cloud',
+    type: 'cloud' as const,
     apiType: 'groq',
     apiKey: process.env.GROQ_API_KEY || '',
     defaultModel: 'llama-3.3-70b-versatile',
     isEnabled: true,
-  });
-
-  providerRegistry.registerProvider({
-    id: 'custom-openai',
-    name: 'Custom OpenAI-Compatible (LM Studio/vLLM/NIM)',
-    type: 'local',
+  },
+  {
+    id: 'ollama-local',
+    name: 'Ollama Local Engine',
+    type: 'local' as const,
+    apiType: 'ollama',
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    defaultModel: 'llama3',
+    isEnabled: true,
+  },
+  {
+    id: 'lmstudio-local',
+    name: 'LM Studio Local (OpenAI-Compatible)',
+    type: 'local' as const,
     apiType: 'openai_compatible',
     baseUrl: 'http://localhost:1234/v1',
     apiKey: '',
-    defaultModel: 'nemotron',
+    defaultModel: 'local-model',
     isEnabled: false,
-  });
+  },
+  {
+    id: 'custom-openai',
+    name: 'Custom OpenAI-Compatible (vLLM / Enterprise)',
+    type: 'cloud' as const,
+    apiType: 'openai_compatible',
+    baseUrl: '',
+    apiKey: '',
+    defaultModel: '',
+    isEnabled: false,
+  },
+];
+
+for (const p of defaultProviders) {
+  const existing = providerRegistry.getProvider(p.id);
+  if (!existing) {
+    providerRegistry.registerProvider(p);
+  } else {
+    // Sync environment variables if stored config key is empty
+    if (!existing.config.apiKey && p.apiKey) {
+      existing.updateConfig({ apiKey: p.apiKey });
+    }
+  }
 }
 
-// Initial model discovery
-modelRegistry.discoverAllModels().then(() => {
-  // Register Nemotron Free Local/Ollama Preset Model
-  modelRegistry.registerModel({
-    id: 'nemotron-70b',
-    name: 'nemotron-70b',
-    providerId: 'ollama-local',
-    contextWindow: 32768,
-    capabilities: {
-      chat: true,
-      streaming: true,
-      toolCalling: true,
-      vision: false,
-      codeGeneration: true,
-      reasoning: true,
+// Initial model discovery and registration of robust provider catalogs
+modelRegistry.discoverAllModels().then(async () => {
+  // Register known catalog models for all providers so offline/unconfigured state is fully handled
+  const catalogModels = [
+    // Gemini
+    {
+      id: 'gemini-2.5-flash',
+      name: 'Gemini 2.5 Flash',
+      providerId: 'gemini-cloud',
+      contextWindow: 1048576,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: true, codeGeneration: true, reasoning: false },
+      pricing: { input: 0.075, output: 0.30 },
+      local: false,
+      description: 'Google ultra-fast multimodal model',
     },
-    local: true,
-    description: 'NVIDIA Nemotron 70B (Free Local / Ollama)',
-  });
+    {
+      id: 'gemini-2.5-pro',
+      name: 'Gemini 2.5 Pro',
+      providerId: 'gemini-cloud',
+      contextWindow: 2097152,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: true, codeGeneration: true, reasoning: true },
+      pricing: { input: 1.25, output: 5.00 },
+      local: false,
+      description: 'Google flagship reasoning and multimodal model',
+    },
+    // OpenAI
+    {
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      providerId: 'openai-cloud',
+      contextWindow: 128000,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: true, codeGeneration: true, reasoning: true },
+      pricing: { input: 2.50, output: 10.00 },
+      local: false,
+      description: 'OpenAI flagship multimodal coding model',
+    },
+    {
+      id: 'gpt-4o-mini',
+      name: 'GPT-4o Mini',
+      providerId: 'openai-cloud',
+      contextWindow: 128000,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: true, codeGeneration: true, reasoning: false },
+      pricing: { input: 0.15, output: 0.60 },
+      local: false,
+      description: 'Fast, efficient everyday model',
+    },
+    {
+      id: 'o3-mini',
+      name: 'o3-mini',
+      providerId: 'openai-cloud',
+      contextWindow: 200000,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: false, codeGeneration: true, reasoning: true },
+      pricing: { input: 1.10, output: 4.40 },
+      local: false,
+      description: 'High-speed reasoning model for coding and logic',
+    },
+    // Anthropic
+    {
+      id: 'claude-3-5-sonnet-20241022',
+      name: 'Claude 3.5 Sonnet',
+      providerId: 'anthropic-cloud',
+      contextWindow: 200000,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: true, codeGeneration: true, reasoning: true },
+      pricing: { input: 3.00, output: 15.00 },
+      local: false,
+      description: 'Anthropic leading model for coding and agents',
+    },
+    // Groq
+    {
+      id: 'llama-3.3-70b-versatile',
+      name: 'Llama 3.3 70B (Groq LPU)',
+      providerId: 'groq-lpu',
+      contextWindow: 128000,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: false, codeGeneration: true, reasoning: true },
+      pricing: { input: 0.59, output: 0.79 },
+      local: false,
+      description: 'Ultra-fast LPU inference via Groq',
+    },
+    // Ollama
+    {
+      id: 'llama3',
+      name: 'Llama 3 (Local)',
+      providerId: 'ollama-local',
+      contextWindow: 32768,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: false, codeGeneration: true, reasoning: false },
+      local: true,
+      description: 'Meta Llama 3 running locally on Ollama',
+    },
+    {
+      id: 'qwen2.5-coder:7b',
+      name: 'Qwen 2.5 Coder 7B (Local)',
+      providerId: 'ollama-local',
+      contextWindow: 32768,
+      capabilities: { chat: true, streaming: true, toolCalling: true, vision: false, codeGeneration: true, reasoning: false },
+      local: true,
+      description: 'Specialized local code generation model',
+    },
+  ];
 
-  const allModels = modelRegistry.getAllModels();
-  const gemmaModel = allModels.find(m => m.id === 'gemma4:31b-cloud');
-  const workingModel = gemmaModel || allModels.find(m => {
-    const prov = providerRegistry.getProvider(m.providerId);
-    return prov && prov.isEnabled && (prov.type === 'local' || Boolean(prov.config.apiKey));
-  });
-  if (workingModel) {
-    gateway.setActiveModel(workingModel.id);
-    console.log(`[MaxIDE] Set default active model to "${workingModel.name}" (${workingModel.id})`);
+  for (const m of catalogModels) {
+    if (!modelRegistry.getModel(m.id)) {
+      modelRegistry.registerModel(m as any);
+    }
+  }
+
+  // Determine intelligent default active model:
+  // Check configured cloud providers first (never default to dead Ollama)
+  let initialActiveModel = 'auto';
+
+  const cloudConfigs = [
+    { key: process.env.GEMINI_API_KEY || providerRegistry.getProvider('gemini-cloud')?.config.apiKey, modelId: 'gemini-2.5-flash' },
+    { key: process.env.OPENAI_API_KEY || providerRegistry.getProvider('openai-cloud')?.config.apiKey, modelId: 'gpt-4o' },
+    { key: process.env.ANTHROPIC_API_KEY || providerRegistry.getProvider('anthropic-cloud')?.config.apiKey, modelId: 'claude-3-5-sonnet-20241022' },
+    { key: process.env.GROQ_API_KEY || providerRegistry.getProvider('groq-lpu')?.config.apiKey, modelId: 'llama-3.3-70b-versatile' },
+  ];
+
+  const configuredCloud = cloudConfigs.find(c => Boolean(c.key));
+  if (configuredCloud) {
+    initialActiveModel = configuredCloud.modelId;
+    gateway.setActiveModel(initialActiveModel);
+    console.log(`[MaxIDE] Primary cloud provider configured: activated "${initialActiveModel}"`);
+  } else {
+    // Probe if Ollama is actively online
+    try {
+      const ollamaHealth = await providerRegistry.checkProviderHealth('ollama-local');
+      if (ollamaHealth.status === 'online') {
+        initialActiveModel = 'llama3';
+        gateway.setActiveModel('llama3');
+        console.log(`[MaxIDE] Ollama is online locally: activated "llama3"`);
+      } else {
+        console.log(`[MaxIDE] No cloud API keys found and Ollama is offline. Set to AUTO routing mode.`);
+      }
+    } catch {
+      console.log(`[MaxIDE] Set to AUTO routing mode.`);
+    }
   }
 }).catch(() => {});
 

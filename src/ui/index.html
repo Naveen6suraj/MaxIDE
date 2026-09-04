@@ -165,6 +165,9 @@
         <button onclick="toggleAgentPanel()" id="btn-toggle-agent" class="p-1.5 rounded hover:bg-ide-hover text-cyan-400 bg-ide-active transition-colors" title="Toggle AI Agent Studio (Ctrl+L)">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         </button>
+        <button onclick="toggleFocusMode()" id="btn-toggle-focus" class="p-1.5 rounded hover:bg-ide-hover text-slate-300 transition-colors" title="Toggle Focus Mode (Ctrl+Shift+F)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+        </button>
       </div>
 
       <!-- Settings Gear -->
@@ -525,10 +528,16 @@
           <textarea id="agent-prompt-input" rows="3" placeholder="Describe the software engineering task to accomplish..." class="w-full bg-ide-surface border border-ide-border rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-sans leading-relaxed"></textarea>
           <div class="flex items-center justify-between">
             <span class="text-[10px] text-slate-500 font-mono">Shift+Enter for new line</span>
-            <button onclick="dispatchAgentTask()" id="btn-agent-send" class="px-4 py-1.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              Run Task
-            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="stopAgentTask()" id="btn-agent-stop" class="hidden px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-rose-500/20 transition-all cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                Stop
+              </button>
+              <button onclick="dispatchAgentTask()" id="btn-agent-send" class="px-4 py-1.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Run Task
+              </button>
+            </div>
           </div>
         </div>
 
@@ -620,22 +629,136 @@
 
   <!-- Modal: Settings & Providers -->
   <div id="modal-settings" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-    <div class="bg-ide-panel border border-ide-border rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
-      <div class="px-5 py-3 border-b border-ide-border flex items-center justify-between bg-ide-surface">
+    <div class="bg-ide-panel border border-ide-border rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <!-- Modal Header -->
+      <div class="px-5 py-3 border-b border-ide-border flex items-center justify-between bg-ide-surface flex-shrink-0">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
-          <h3 class="font-bold text-white text-sm">AI Providers & Settings</h3>
+          <h3 class="font-bold text-white text-sm">Settings & AI Configuration</h3>
         </div>
-        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">&times;</button>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
-      <div class="p-5 space-y-4 text-xs max-h-[70vh] overflow-y-auto custom-scrollbar">
-        <div class="flex items-center justify-between">
-          <span class="font-semibold text-slate-200">Registered Providers</span>
-          <button onclick="openAddProviderModal()" class="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-semibold">+ Add Provider</button>
+
+      <!-- Tab Header Bar -->
+      <div class="flex items-center border-b border-ide-border bg-ide-surface/50 px-4 text-xs font-semibold text-slate-400 flex-shrink-0">
+        <button onclick="switchSettingsTab('providers')" id="set-tab-providers" class="text-cyan-400 border-b-2 border-cyan-400 py-2.5 px-3">AI Providers</button>
+        <button onclick="switchSettingsTab('agent')" id="set-tab-agent" class="text-slate-400 hover:text-white py-2.5 px-3">Agent & Autonomy</button>
+        <button onclick="switchSettingsTab('editor')" id="set-tab-editor" class="text-slate-400 hover:text-white py-2.5 px-3">Editor</button>
+        <button onclick="switchSettingsTab('git')" id="set-tab-git" class="text-slate-400 hover:text-white py-2.5 px-3">Git</button>
+        <button onclick="switchSettingsTab('security')" id="set-tab-security" class="text-slate-400 hover:text-white py-2.5 px-3">Privacy & Safety</button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="p-5 flex-1 overflow-y-auto custom-scrollbar space-y-4 text-xs">
+        <!-- Tab 1: AI Providers -->
+        <div id="set-panel-providers" class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="font-bold text-white text-xs">AI Providers & API Keys</h4>
+              <p class="text-[11px] text-slate-400">Configure Cloud AI (Google Gemini, OpenAI, Anthropic, Groq) and Local AI (Ollama, LM Studio)</p>
+            </div>
+            <button onclick="openAddProviderModal()" class="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-semibold">+ Add Custom Provider</button>
+          </div>
+          <div id="modal-providers-table" class="space-y-2.5">
+            <!-- Populated dynamically -->
+          </div>
         </div>
-        <div id="modal-providers-table" class="space-y-2">
-          <!-- Populated dynamically -->
+
+        <!-- Tab 2: Agent & Autonomy -->
+        <div id="set-panel-agent" class="space-y-4 hidden">
+          <div>
+            <h4 class="font-bold text-white text-xs">Agent Engineering Loop Configuration</h4>
+            <p class="text-[11px] text-slate-400">Adjust the autonomous decision-making boundaries of MaxIDE</p>
+          </div>
+          <div class="space-y-3">
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Default Autonomy Mode</label>
+              <select id="setting-autonomy-mode" onchange="changeAutonomyMode(this.value)" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-2 text-white">
+                <option value="AUTONOMOUS">⚡ Autonomous (Execute & Verify end-to-end)</option>
+                <option value="AGENT">Agent (Execute with progress checkpoints)</option>
+                <option value="ASSIST">Assist (Suggest edits for user approval)</option>
+                <option value="ASK">Ask (Require confirmation before changes)</option>
+              </select>
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Default Routing Category</label>
+              <select id="setting-default-category" onchange="changeActiveModel(this.value)" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-2 text-white">
+                <option value="AUTO">⚡ Auto (Best Free / Available Model)</option>
+                <option value="CODING">💻 Coding Specialist</option>
+                <option value="REASONING">🧠 Reasoning Specialist</option>
+                <option value="FAST">🚀 Fast / Low Latency</option>
+                <option value="BALANCED">⚖️ Balanced</option>
+              </select>
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border flex items-center justify-between">
+              <div>
+                <span class="font-semibold text-slate-200 block">Autonomous Browser Verification</span>
+                <span class="text-[11px] text-slate-400">Launch headless Playwright browser to test web applications and detect console errors</span>
+              </div>
+              <input type="checkbox" id="setting-browser-verify" checked class="w-4 h-4 text-cyan-500 rounded bg-ide-panel border-ide-border">
+            </div>
+          </div>
         </div>
+
+        <!-- Tab 3: Editor -->
+        <div id="set-panel-editor" class="space-y-4 hidden">
+          <h4 class="font-bold text-white text-xs">Monaco Code Editor</h4>
+          <div class="space-y-3">
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Font Size</label>
+              <input type="number" id="setting-font-size" value="13" min="10" max="24" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-1.5 text-white" />
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Tab Size</label>
+              <select id="setting-tab-size" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-1.5 text-white">
+                <option value="2">2 Spaces</option>
+                <option value="4">4 Spaces</option>
+              </select>
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border flex items-center justify-between">
+              <div>
+                <span class="font-semibold text-slate-200 block">Word Wrap</span>
+                <span class="text-[11px] text-slate-400">Wrap long lines to fit editor viewport</span>
+              </div>
+              <input type="checkbox" id="setting-word-wrap" checked class="w-4 h-4 text-cyan-500 rounded bg-ide-panel border-ide-border">
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Git -->
+        <div id="set-panel-git" class="space-y-4 hidden">
+          <h4 class="font-bold text-white text-xs">Git Version Control</h4>
+          <div class="space-y-3">
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Default Author Name</label>
+              <input type="text" id="setting-git-author" placeholder="MaxIDE Engineer" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-1.5 text-white" />
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">Default Author Email</label>
+              <input type="email" id="setting-git-email" placeholder="engineer@maxide.dev" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-1.5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 5: Security & Safety -->
+        <div id="set-panel-security" class="space-y-4 hidden">
+          <h4 class="font-bold text-white text-xs">Privacy Boundary & Execution Safety</h4>
+          <div class="space-y-3">
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <label class="block font-semibold text-slate-200">AI Privacy Mode</label>
+              <select id="setting-privacy-mode" onchange="changeAIMode(this.value)" class="w-full bg-ide-panel border border-ide-border rounded-lg px-3 py-2 text-white">
+                <option value="cloud">Cloud AI (Full capabilities with Google Gemini, OpenAI, Claude, Groq)</option>
+                <option value="hybrid">Hybrid (Local models when possible, Cloud for complex reasoning)</option>
+                <option value="local">Local Only 🛡️ (Strict 100% offline boundary with Ollama & LM Studio)</option>
+              </select>
+            </div>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-1">
+              <span class="font-semibold text-slate-200 block">Command Safety Gate</span>
+              <p class="text-[11px] text-slate-400">SafeTerminal enforces safe command execution. Dangerous commands require explicit user confirmation.</p>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -971,6 +1094,12 @@
           openAgentManager('agents');
           return;
         }
+        // Ctrl+Shift+F: Toggle Focus Mode
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+          e.preventDefault();
+          toggleFocusMode();
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
           e.preventDefault();
           openCommandPalette();
@@ -1031,6 +1160,20 @@
       } else {
         ap.classList.add('hidden');
         btn.classList.remove('bg-ide-active', 'text-cyan-400');
+      }
+    }
+
+    let focusMode = false;
+    function toggleFocusMode() {
+      focusMode = !focusMode;
+      const btnFocus = document.getElementById('btn-toggle-focus');
+      if (focusMode) {
+        if (state.sidebarOpen) toggleSidebar();
+        if (state.bottomPanelOpen) toggleBottomPanel();
+        if (btnFocus) btnFocus.classList.add('bg-ide-active', 'text-cyan-400');
+      } else {
+        if (!state.sidebarOpen) toggleSidebar();
+        if (btnFocus) btnFocus.classList.remove('bg-ide-active', 'text-cyan-400');
       }
     }
 
@@ -1667,6 +1810,158 @@
     });
 
     // --- AI Agent Dispatch & Execution ---
+    let activeStreamAbortController = null;
+
+    async function stopAgentTask() {
+      const btnStop = document.getElementById('btn-agent-stop');
+      if (btnStop) {
+        btnStop.innerHTML = '<span class="animate-spin">⏳</span> Stopping...';
+      }
+      if (activeStreamAbortController) {
+        activeStreamAbortController.abort();
+        activeStreamAbortController = null;
+      }
+      try {
+        await fetch('/api/agent/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: state.activeConversationId }),
+        });
+      } catch (e) {}
+      setAgentStateBadge('Stopped');
+      const btnSend = document.getElementById('btn-agent-send');
+      if (btnSend) {
+        btnSend.disabled = false;
+        btnSend.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
+      }
+      if (btnStop) {
+        btnStop.classList.add('hidden');
+        btnStop.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg> Stop';
+      }
+    }
+
+    function handleAgentOutcome(outcome, turnEl, turnDot, turnTitle, turnBadge, turnBody, turnActions, accumulatedText) {
+      if (!outcome) return;
+      if (outcome.conversationId) {
+        state.activeConversationId = outcome.conversationId;
+      }
+
+      const isSuccess = outcome.success !== false;
+      const isClarification = outcome.actionType === 'clarification' || outcome.status === 'clarification_needed';
+      const isChat = outcome.actionType === 'conversation' || outcome.intent === 'CHAT' || outcome.intent === 'EXPLAIN';
+
+      if (turnBadge) {
+        turnBadge.textContent = isClarification ? 'Clarification Gate' : isChat ? 'Assistant' : isSuccess ? 'Completed' : 'Error';
+      }
+      if (turnDot) {
+        turnDot.className = `w-2 h-2 rounded-full ${isClarification ? 'bg-amber-400 animate-ping' : isSuccess ? 'bg-emerald-400' : 'bg-rose-400'}`;
+      }
+      if (turnTitle) {
+        turnTitle.textContent = isClarification ? 'NEED MORE INFO' : isChat ? 'MAX ASSISTANT' : isSuccess ? 'TASK COMPLETED' : 'TASK FAILED';
+        turnTitle.className = `font-bold text-[11px] font-mono ${isClarification ? 'text-amber-400' : isSuccess ? 'text-emerald-400' : 'text-rose-400'}`;
+      }
+      setAgentStateBadge(isClarification ? 'I need a little more information' : isSuccess ? 'Completed' : 'Error');
+
+      if (isClarification) {
+        const questionsHtml = (outcome.questions || []).map(q => `
+          <div class="space-y-1.5 pt-1">
+            <p class="font-semibold text-white text-xs">${escapeHtml(q.question)}</p>
+            <div class="grid grid-cols-1 gap-1.5 pl-1">
+              ${(q.options || []).map(opt => {
+                const safeOpt = escapeHtml(opt);
+                const safeConv = escapeHtml(outcome.conversationId || state.activeConversationId || '');
+                return `
+                  <button type="button" data-option="${safeOpt}" data-conv="${safeConv}" onclick="submitClarificationOption(this.getAttribute('data-option'), this.getAttribute('data-conv'))" class="clarification-opt-btn text-left px-3 py-2 rounded-lg bg-ide-panel hover:bg-cyan-950/60 border border-ide-border hover:border-cyan-500/50 text-slate-200 hover:text-white text-xs transition flex items-center justify-between group cursor-pointer shadow-sm">
+                    <span>${safeOpt}</span>
+                    <span class="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition font-mono">Select ↵</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `).join('');
+
+        if (turnBody) {
+          turnBody.innerHTML = `
+            <div class="space-y-2">
+              <p class="text-xs text-slate-300 leading-relaxed">To ensure MaxIDE builds exactly what you need, please choose an option or tell me what you prefer:</p>
+              ${questionsHtml}
+            </div>
+          `;
+        }
+      } else {
+        const answerText = outcome.finalAnswer || outcome.summary || outcome.error || accumulatedText || 'Task completed successfully.';
+        if (turnBody) {
+          turnBody.innerHTML = formatMarkdownText(answerText);
+        }
+      }
+
+      // Action Pills (Live Website, Embedded Preview, File, Terminal)
+      const actionPills = [];
+      const activePreviewUrl = outcome.previewInfo?.previewUrl || outcome.openPreview;
+      if (activePreviewUrl || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
+        const previewTarget = activePreviewUrl || `/workspace-preview/${outcome.openFile}`;
+        actionPills.push(`
+          <a href="${previewTarget}" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-md no-underline">
+            🌐 Open Website in New Tab ↗
+          </a>
+          <button onclick="switchBottomTab('browser'); document.getElementById('browser-test-url').value = '${previewTarget}'; reloadBrowserPreview();" class="px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+            📱 View Embedded Preview
+          </button>
+        `);
+      }
+      if (outcome.openFile) {
+        actionPills.push(`
+          <button onclick="openFileInEditor('${outcome.openFile}')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+            📄 View ${outcome.openFile}
+          </button>
+        `);
+      }
+      actionPills.push(`
+        <button onclick="switchBottomTab('terminal')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+          💻 Terminal
+        </button>
+      `);
+
+      if (turnActions) {
+        turnActions.innerHTML = actionPills.join('');
+        turnActions.classList.remove('hidden');
+      }
+
+      try { refreshPatches(); } catch {}
+      try { fetchWorkspaceTree(); } catch {}
+      try { refreshGit(); } catch {}
+
+      // Automatic Workbench UI Action Execution
+      if (outcome.openFile) {
+        openFileInEditor(outcome.openFile);
+      }
+      const targetPreview = outcome.previewInfo?.previewUrl || outcome.openPreview;
+      if (targetPreview) {
+        switchBottomTab('browser');
+        const urlInput = document.getElementById('browser-test-url');
+        if (urlInput) urlInput.value = targetPreview;
+        const iframe = document.getElementById('browser-preview-iframe');
+        if (iframe) {
+          iframe.src = targetPreview + (targetPreview.includes('?') ? '&' : '?') + 't=' + Date.now();
+        }
+      }
+      if (outcome.openTerminal) {
+        switchBottomTab('terminal');
+      }
+
+      const btnSend = document.getElementById('btn-agent-send');
+      const btnStop = document.getElementById('btn-agent-stop');
+      if (btnSend) {
+        btnSend.disabled = false;
+        btnSend.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
+      }
+      if (btnStop) {
+        btnStop.classList.add('hidden');
+      }
+      activeStreamAbortController = null;
+    }
+
     async function dispatchAgentTask() {
       const input = document.getElementById('agent-prompt-input');
       const task = input.value.trim();
@@ -1674,8 +1969,13 @@
 
       const modelId = document.getElementById('header-model-select').value;
       const btn = document.getElementById('btn-agent-send');
+      const btnStop = document.getElementById('btn-agent-stop');
       btn.disabled = true;
       btn.innerHTML = '<span class="animate-pulse">Thinking...</span>';
+      if (btnStop) {
+        btnStop.classList.remove('hidden');
+        btnStop.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg> Stop';
+      }
       setAgentStateBadge('Understanding request...');
 
       const attachmentsToSend = [...state.stagedAttachments];
@@ -1690,53 +1990,94 @@
       feed.innerHTML += `
         <div class="p-3 rounded-xl bg-ide-hover border border-ide-border space-y-1">
           <span class="font-bold text-slate-300 text-[11px]">YOU</span>
-          <p class="text-white leading-relaxed">${task || 'Inspect and process attached files.'}</p>
+          <p class="text-white leading-relaxed">${escapeHtml(task) || 'Inspect and process attached files.'}</p>
           ${attachInfo}
         </div>
       `;
       feed.scrollTop = feed.scrollHeight;
       input.value = '';
 
-      // Check if chosen model has no API key (skip if auto-mode is selected)
-      if (modelId && modelId !== 'auto') {
+      // Check if chosen specific model has no API key (skip if category mode AUTO, CODING, REASONING, FAST, BALANCED is selected)
+      const isCategory = ['AUTO', 'CODING', 'REASONING', 'FAST', 'BALANCED', 'auto'].includes(modelId);
+      if (modelId && !isCategory) {
         const chosenModel = state.models.find(m => m.id === modelId);
         const chosenProv = chosenModel ? state.providers.find(p => p.id === chosenModel.providerId) : null;
         if (chosenProv && chosenProv.type === 'cloud' && !chosenProv.apiKey) {
           setAgentStateBadge('Idle');
-        const localFallback = state.models.find(m => {
-          const prov = state.providers.find(p => p.id === m.providerId);
-          return prov && prov.type === 'local';
-        });
+          const localFallback = state.models.find(m => {
+            const prov = state.providers.find(p => p.id === m.providerId);
+            return prov && prov.type === 'local';
+          });
 
-        feed.innerHTML += `
-          <div class="p-3 rounded-xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs space-y-2">
-            <div class="font-bold flex items-center gap-1.5 text-amber-400 text-[11px]">
-              <span>⚠️ Cloud API Key Required</span>
-            </div>
-            <p class="text-[11px] text-slate-300 leading-relaxed">
-              Provider <strong>${chosenProv.name}</strong> has no API key configured.
-            </p>
-            <div class="flex items-center gap-2 pt-1">
-              ${localFallback ? `
-                <button onclick="changeActiveModel('${localFallback.id}'); document.getElementById('agent-prompt-input').value = ${JSON.stringify(task)}; dispatchAgentTask();" class="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-[11px] flex items-center gap-1">
-                  ⚡ Run with Local Ollama (${localFallback.name})
+          feed.innerHTML += `
+            <div class="p-3 rounded-xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs space-y-2">
+              <div class="font-bold flex items-center gap-1.5 text-amber-400 text-[11px]">
+                <span>⚠️ Cloud API Key Required</span>
+              </div>
+              <p class="text-[11px] text-slate-300 leading-relaxed">
+                Provider <strong>${chosenProv.name}</strong> has no API key configured.
+              </p>
+              <div class="flex items-center gap-2 pt-1">
+                ${localFallback ? `
+                  <button onclick="changeActiveModel('${localFallback.id}'); document.getElementById('agent-prompt-input').value = ${JSON.stringify(task)}; dispatchAgentTask();" class="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-[11px] flex items-center gap-1">
+                    ⚡ Run with Local Ollama (${localFallback.name})
+                  </button>
+                ` : ''}
+                <button onclick="openSettingsModal()" class="px-2.5 py-1 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-[11px]">
+                  ⚙️ Enter API Key in Settings
                 </button>
-              ` : ''}
-              <button onclick="openSettingsModal()" class="px-2.5 py-1 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-[11px]">
-                ⚙️ Enter API Key in Settings
-              </button>
+              </div>
             </div>
-          </div>
-        `;
-        feed.scrollTop = feed.scrollHeight;
-        btn.disabled = false;
-        btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
-        return;
+          `;
+          feed.scrollTop = feed.scrollHeight;
+          btn.disabled = false;
+          btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
+          if (btnStop) btnStop.classList.add('hidden');
+          return;
+        }
       }
-    }
+
+      // Create assistant turn container for live streaming or response display
+      const turnId = 'turn-' + Date.now();
+      feed.innerHTML += `
+        <div id="${turnId}" class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2.5 shadow-lg agent-turn-container">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 pulse-dot turn-dot"></span>
+              <span class="font-bold text-cyan-400 text-[11px] font-mono turn-title">MAX AGENT</span>
+            </div>
+            <span class="text-[10px] text-slate-500 font-mono turn-badge">Running...</span>
+          </div>
+          <details class="agent-activity-group my-1.5 p-2 rounded-lg bg-ide-panel/80 border border-ide-border text-xs hidden">
+            <summary class="cursor-pointer font-mono text-[11px] text-cyan-400 font-semibold select-none flex items-center justify-between">
+              <span>⚡ Agent Activity (<span class="activity-count">0</span> operations)</span>
+              <span class="text-[10px] text-slate-500 font-sans">Details</span>
+            </summary>
+            <div class="activity-items space-y-1 pt-2 font-mono text-[10px] text-slate-300 max-h-40 overflow-y-auto custom-scrollbar"></div>
+          </details>
+          <div class="turn-body text-xs text-slate-200 leading-relaxed">
+            <span class="text-slate-400 italic">Thinking...</span>
+          </div>
+          <div class="turn-actions pt-2 border-t border-ide-border/60 flex flex-wrap gap-1.5 hidden"></div>
+        </div>
+      `;
+      feed.scrollTop = feed.scrollHeight;
+
+      const turnEl = document.getElementById(turnId);
+      const turnDot = turnEl?.querySelector('.turn-dot');
+      const turnTitle = turnEl?.querySelector('.turn-title');
+      const turnBadge = turnEl?.querySelector('.turn-badge');
+      const turnBody = turnEl?.querySelector('.turn-body');
+      const turnActions = turnEl?.querySelector('.turn-actions');
+      const actGroup = turnEl?.querySelector('.agent-activity-group');
+      const actCount = turnEl?.querySelector('.activity-count');
+      const actItems = turnEl?.querySelector('.activity-items');
+
+      let streamSucceeded = false;
+      activeStreamAbortController = new AbortController();
 
       try {
-        const res = await fetch('/api/agent/run', {
+        const streamRes = await fetch('/api/agent/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1747,174 +2088,110 @@
             attachments: attachmentsToSend,
             conversationId: state.activeConversationId,
           }),
+          signal: activeStreamAbortController.signal,
         });
-        if (!res.ok) {
-          let errorMsg = `Server error ${res.status}`;
-          try {
-            const errJson = await res.json();
-            errorMsg = errJson.error || errJson.message || errorMsg;
-          } catch {
-            const rawText = await res.text();
-            errorMsg = rawText.slice(0, 200) || errorMsg;
-          }
-          throw new Error(errorMsg);
-        }
 
-        const outcome = await res.json();
+        if (streamRes.ok && streamRes.body) {
+          streamSucceeded = true;
+          const reader = streamRes.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let accumulatedText = '';
+          let opCount = 0;
 
-        if (outcome.conversationId) {
-          state.activeConversationId = outcome.conversationId;
-        }
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
 
-        let cardHtml = '';
-        const actionPills = [];
-        const activePreviewUrl = outcome.previewInfo?.previewUrl || outcome.openPreview;
-        if (activePreviewUrl || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
-          const previewTarget = activePreviewUrl || `/workspace-preview/${outcome.openFile}`;
-          actionPills.push(`
-            <a href="${previewTarget}" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-md no-underline">
-              🌐 Open Website in New Tab ↗
-            </a>
-            <button onclick="switchBottomTab('browser'); document.getElementById('browser-test-url').value = '${previewTarget}'; reloadBrowserPreview();" class="px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
-              📱 View Embedded Preview
-            </button>
-          `);
-        }
-        if (outcome.openFile) {
-          actionPills.push(`
-            <button onclick="openFileInEditor('${outcome.openFile}')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
-              📄 View ${outcome.openFile}
-            </button>
-          `);
-        }
-        actionPills.push(`
-          <button onclick="switchBottomTab('terminal')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
-            💻 Terminal
-          </button>
-        `);
-
-        const actionButtonsRow = `
-          <div class="pt-2 border-t border-ide-border/60 flex flex-wrap gap-1.5">
-            ${actionPills.join('')}
-          </div>
-        `;
-
-        const autoModelBadge = outcome.autoModel ? `
-          <div class="px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-[10px] text-cyan-300 font-mono flex items-center justify-between shadow-sm mb-2">
-            <span class="flex items-center gap-1.5">⚡ Auto-Selected: <strong>${outcome.autoModel.modelName}</strong></span>
-            <span class="text-slate-400 font-sans">• ${outcome.autoModel.category}</span>
-          </div>
-        ` : '';
-
-        // Clarification-Needed Card
-        if (outcome.actionType === 'clarification' || outcome.status === 'clarification_needed') {
-          setAgentStateBadge('I need a little more information');
-
-          const questionsHtml = (outcome.questions || []).map(q => `
-            <div class="space-y-1.5 pt-1">
-              <p class="font-semibold text-white text-xs">${escapeHtml(q.question)}</p>
-              <div class="grid grid-cols-1 gap-1.5 pl-1">
-                ${(q.options || []).map(opt => {
-                  const safeOpt = escapeHtml(opt);
-                  const safeConv = escapeHtml(outcome.conversationId || state.activeConversationId || '');
-                  return `
-                    <button type="button" data-option="${safeOpt}" data-conv="${safeConv}" onclick="submitClarificationOption(this.getAttribute('data-option'), this.getAttribute('data-conv'))" class="clarification-opt-btn text-left px-3 py-2 rounded-lg bg-ide-panel hover:bg-cyan-950/60 border border-ide-border hover:border-cyan-500/50 text-slate-200 hover:text-white text-xs transition flex items-center justify-between group cursor-pointer shadow-sm">
-                      <span>${safeOpt}</span>
-                      <span class="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition font-mono">Select ↵</span>
-                    </button>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-          `).join('');
-
-          cardHtml = `
-            <div class="p-3.5 rounded-xl bg-ide-surface border border-cyan-500/50 space-y-2.5 shadow-lg">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                  <span class="font-bold text-amber-300 text-[11px] font-mono">I NEED A LITTLE MORE INFORMATION</span>
-                </div>
-                <span class="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono">Clarification Gate</span>
-              </div>
-              ${autoModelBadge}
-              <p class="text-xs text-slate-300 leading-relaxed">To ensure MaxIDE builds exactly what you need, please choose an option or tell me what you prefer:</p>
-              ${questionsHtml}
-              <div class="pt-1 text-[10px] text-slate-400 italic">
-                Tip: You can click any option above, or type custom instructions in the chat box below.
-              </div>
-            </div>
-          `;
-        } else if (outcome.actionType === 'conversation' || outcome.actionType === 'workbench_action') {
-          setAgentStateBadge('Completed');
-          cardHtml = `
-            <div class="p-3.5 rounded-xl bg-ide-surface border border-cyan-500/30 space-y-2 shadow-lg">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-cyan-400 pulse-dot"></span>
-                  <span class="font-bold text-cyan-400 text-[11px] font-mono">MAX ASSISTANT</span>
-                </div>
-                <span class="text-[10px] text-slate-500 font-mono">${outcome.actionType === 'workbench_action' ? 'Workbench Action' : 'Assistant'}</span>
-              </div>
-              ${autoModelBadge}
-              <div class="text-xs">
-                ${formatMarkdownText(outcome.finalAnswer || outcome.summary)}
-              </div>
-              ${actionButtonsRow}
-            </div>
-          `;
-        } else {
-          setAgentStateBadge(outcome.success ? 'Completed' : 'Error');
-          cardHtml = `
-            <div class="p-3.5 rounded-xl bg-ide-surface border ${outcome.success ? 'border-emerald-500/40' : 'border-rose-500/40'} space-y-2 shadow-lg">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full ${outcome.success ? 'bg-emerald-400' : 'bg-rose-400'}"></span>
-                  <span class="font-bold ${outcome.success ? 'text-emerald-400' : 'text-rose-400'} text-[11px] font-mono">
-                    ${outcome.success ? '⚡ AGENT TASK COMPLETED' : '✗ TASK FAILED'}
-                  </span>
-                </div>
-                <span class="text-[10px] text-slate-500 font-mono">${outcome.stepsCompleted || 1} steps</span>
-              </div>
-              ${autoModelBadge}
-              <div class="text-xs">
-                ${formatMarkdownText(outcome.finalAnswer || outcome.summary || outcome.error)}
-              </div>
-              ${actionButtonsRow}
-            </div>
-          `;
-        }
-
-        feed.innerHTML += cardHtml;
-        feed.scrollTop = feed.scrollHeight;
-        try { refreshPatches(); } catch {}
-        try { fetchWorkspaceTree(); } catch {}
-        try { refreshGit(); } catch {}
-
-        // Automatic Workbench UI Action Execution!
-        if (outcome.openFile) {
-          openFileInEditor(outcome.openFile);
-        }
-        const targetPreview = outcome.previewInfo?.previewUrl || outcome.openPreview;
-        if (targetPreview) {
-          switchBottomTab('browser');
-          const urlInput = document.getElementById('browser-test-url');
-          if (urlInput) urlInput.value = targetPreview;
-          const iframe = document.getElementById('browser-preview-iframe');
-          if (iframe) {
-            iframe.src = targetPreview + (targetPreview.includes('?') ? '&' : '?') + 't=' + Date.now();
+            let currentEvent = 'message';
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              if (trimmed.startsWith('event:')) {
+                currentEvent = trimmed.slice(6).trim();
+              } else if (trimmed.startsWith('data:')) {
+                const rawData = trimmed.slice(5).trim();
+                try {
+                  const data = JSON.parse(rawData);
+                  if (currentEvent === 'token') {
+                    accumulatedText += (data.token || '');
+                    if (turnBody) turnBody.innerHTML = formatMarkdownText(accumulatedText);
+                    feed.scrollTop = feed.scrollHeight;
+                  } else if (currentEvent === 'timeline') {
+                    opCount++;
+                    if (actGroup) actGroup.classList.remove('hidden');
+                    if (actCount) actCount.textContent = String(opCount);
+                    if (actItems) {
+                      const msg = data.event?.message || data.event?.action || 'Operation';
+                      actItems.innerHTML += `<div class="p-1 rounded bg-ide-surface/60 flex items-center gap-1.5"><span class="text-cyan-400">→</span><span>${escapeHtml(msg)}</span></div>`;
+                    }
+                    const globalTimeline = document.getElementById('activity-timeline-container');
+                    if (globalTimeline) {
+                      const gmsg = data.event?.message || data.event?.action || 'Step';
+                      globalTimeline.innerHTML += `<div class="p-1.5 rounded bg-ide-surface border border-ide-border text-slate-300 font-mono text-[11px]"><span class="text-cyan-400">[Agent]</span> ${escapeHtml(gmsg)}</div>`;
+                    }
+                    setAgentStateBadge(data.event?.action || 'Executing...');
+                  } else if (currentEvent === 'tool') {
+                    setAgentStateBadge(`Running: ${data.tool}`);
+                  } else if (currentEvent === 'complete') {
+                    handleAgentOutcome(data.outcome, turnEl, turnDot, turnTitle, turnBadge, turnBody, turnActions, accumulatedText);
+                  } else if (currentEvent === 'error') {
+                    if (turnBadge) turnBadge.textContent = 'Error';
+                    if (turnDot) turnDot.className = 'w-2 h-2 rounded-full bg-rose-400';
+                    if (turnBody) turnBody.innerHTML = `<div class="p-2 rounded bg-rose-950/50 border border-rose-500/50 text-rose-300">${escapeHtml(data.error || 'Agent execution failed')}</div>`;
+                  }
+                } catch (e) {}
+              }
+            }
           }
         }
-        if (outcome.openTerminal) {
-          switchBottomTab('terminal');
+      } catch (streamErr) {
+        if (streamErr.name === 'AbortError') {
+          if (turnBadge) turnBadge.textContent = 'Stopped';
+          if (turnDot) turnDot.className = 'w-2 h-2 rounded-full bg-slate-400';
+          if (turnBody) turnBody.innerHTML += '<p class="text-amber-400 italic pt-2">Task was stopped by user.</p>';
+          return;
         }
-      } catch (err) {
-        setAgentStateBadge('Error');
-        feed.innerHTML += `<div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs">Error: ${err.message}</div>`;
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
       }
+
+      if (!streamSucceeded) {
+        try {
+          const res = await fetch('/api/agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task: task || 'Process attached project materials and documents',
+              modelId,
+              autonomyMode: state.autonomyMode || 'AUTONOMOUS',
+              maxSteps: 25,
+              attachments: attachmentsToSend,
+              conversationId: state.activeConversationId,
+            }),
+          });
+          if (!res.ok) {
+            let errorMsg = `Server error ${res.status}`;
+            try {
+              const errJson = await res.json();
+              errorMsg = errJson.error || errJson.message || errorMsg;
+            } catch {
+              const rawText = await res.text();
+              errorMsg = rawText.slice(0, 200) || errorMsg;
+            }
+            throw new Error(errorMsg);
+          }
+          const outcome = await res.json();
+          handleAgentOutcome(outcome, turnEl, turnDot, turnTitle, turnBadge, turnBody, turnActions, '');
+        } catch (err) {
+          setAgentStateBadge('Error');
+          if (turnDot) turnDot.className = 'w-2 h-2 rounded-full bg-rose-400';
+          if (turnBadge) turnBadge.textContent = 'Error';
+          if (turnBody) turnBody.innerHTML = `<div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs">Error: ${err.message}</div>`;
+        }
+      }
+      feed.scrollTop = feed.scrollHeight;
     }
 
     function isToolEnvelopeText(str) {
@@ -2155,6 +2432,72 @@
       });
     }
 
+    function switchSettingsTab(tab) {
+      ['providers', 'agent', 'editor', 'git', 'security'].forEach(t => {
+        const panel = document.getElementById(`set-panel-${t}`);
+        const tabBtn = document.getElementById(`set-tab-${t}`);
+        if (panel) panel.classList.toggle('hidden', t !== tab);
+        if (tabBtn) {
+          if (t === tab) {
+            tabBtn.className = 'text-cyan-400 border-b-2 border-cyan-400 py-2.5 px-3 font-bold';
+          } else {
+            tabBtn.className = 'text-slate-400 hover:text-white py-2.5 px-3';
+          }
+        }
+      });
+    }
+
+    async function updateProviderKey(provId) {
+      const input = document.getElementById(`input-key-${provId}`);
+      if (!input) return;
+      const key = input.value.trim();
+      if (!key) {
+        alert('Please enter an API key.');
+        return;
+      }
+      const prov = state.providers.find(p => p.id === provId);
+      if (!prov) return;
+      try {
+        const res = await fetch('/api/providers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...prov, apiKey: key }),
+        });
+        if (res.ok) {
+          alert(`API key saved for ${prov.name}!`);
+          input.value = '';
+          input.placeholder = 'API Key Configured ✓';
+          refreshProviders();
+        } else {
+          const err = await res.json();
+          alert('Failed to save key: ' + (err.error || 'Server error'));
+        }
+      } catch (e) {
+        alert('Failed to save key: ' + e.message);
+      }
+    }
+
+    async function updateProviderUrl(provId) {
+      const input = document.getElementById(`input-url-${provId}`);
+      if (!input) return;
+      const url = input.value.trim();
+      const prov = state.providers.find(p => p.id === provId);
+      if (!prov) return;
+      try {
+        const res = await fetch('/api/providers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...prov, baseUrl: url }),
+        });
+        if (res.ok) {
+          alert(`Base URL updated for ${prov.name}!`);
+          refreshProviders();
+        }
+      } catch (e) {
+        alert('Failed to update URL: ' + e.message);
+      }
+    }
+
     async function refreshProviders() {
       const res = await fetch('/api/providers');
       state.providers = await res.json();
@@ -2162,69 +2505,97 @@
       const mRes = await fetch('/api/models');
       state.models = await mRes.json();
 
-      // Find first configured working model (local or cloud with API key)
-      const workingModel = state.models.find(m => {
-        const prov = state.providers.find(p => p.id === m.providerId);
-        return prov && prov.isEnabled && (prov.type === 'local' || Boolean(prov.apiKey));
-      });
-
-      // If active model is unconfigured or not in models, prefer working local model
-      const activeProv = state.activeModelId ? state.providers.find(p => p.id === state.models.find(m => m.id === state.activeModelId)?.providerId) : null;
-      if (!state.activeModelId || !state.models.some(m => m.id === state.activeModelId) || (activeProv && activeProv.type === 'cloud' && !activeProv.apiKey)) {
-        if (workingModel) {
-          state.activeModelId = workingModel.id;
-          changeActiveModel(workingModel.id);
-        }
-      }
-
       const select = document.getElementById('header-model-select');
       select.innerHTML = '';
 
-      // Auto-Selection Option for Best Free Model
-      const autoOpt = document.createElement('option');
-      autoOpt.value = 'auto';
-      autoOpt.textContent = '⚡ Auto (Best Free Model for Task)';
-      if (state.activeModelId === 'auto' || !state.activeModelId) autoOpt.selected = true;
-      select.appendChild(autoOpt);
+      // 1. Model Routing Categories
+      const catGroup = document.createElement('optgroup');
+      catGroup.label = '── Model Categories (Auto-Routed) ──';
+      const categories = [
+        { id: 'AUTO', name: '⚡ Auto (Intelligent Routing)' },
+        { id: 'CODING', name: '💻 Coding Specialist' },
+        { id: 'REASONING', name: '🧠 Reasoning Specialist' },
+        { id: 'FAST', name: '🚀 Fast / Low Latency' },
+        { id: 'BALANCED', name: '⚖️ Balanced' },
+      ];
+      categories.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name;
+        if (state.activeModelId === c.id || (!state.activeModelId && c.id === 'AUTO') || (state.activeModelId === 'auto' && c.id === 'AUTO')) {
+          opt.selected = true;
+        }
+        catGroup.appendChild(opt);
+      });
+      select.appendChild(catGroup);
 
+      // 2. Specific Models Group
+      const modelGroup = document.createElement('optgroup');
+      modelGroup.label = '── Provider Models ──';
       state.models.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
         const prov = state.providers.find(p => p.id === m.providerId);
-        let tag = '';
-        if (prov && prov.type === 'local') {
-          tag = ' [Free Local / Ollama]';
-        } else if (prov && prov.type === 'cloud' && !prov.apiKey) {
-          tag = ' [Cloud - No Key]';
-        } else {
-          tag = ' [Cloud]';
+        let tag = ' [Offline]';
+        if (prov) {
+          if (prov.type === 'local') {
+            tag = prov.health?.status === 'online' ? ' [Local ✓]' : ' [Local Offline]';
+          } else if (prov.apiKey) {
+            tag = ' [Ready ✓]';
+          } else {
+            tag = ' [No Key]';
+          }
         }
-        opt.textContent = `${m.name}${tag}`;
+        opt.textContent = `${m.name} (${prov ? prov.name : 'Unknown'})${tag}`;
         if (m.id === state.activeModelId) opt.selected = true;
-        select.appendChild(opt);
+        modelGroup.appendChild(opt);
       });
+      select.appendChild(modelGroup);
 
       // Synchronize footer active model display
       const statusModel = document.getElementById('status-active-model');
       if (statusModel) {
-        statusModel.textContent = select.value || state.activeModelId || 'qwen2.5-coder:0.5b';
+        statusModel.textContent = select.value || state.activeModelId || 'AUTO';
       }
 
       const modalTable = document.getElementById('modal-providers-table');
       if (modalTable) {
         modalTable.innerHTML = '';
         state.providers.forEach(p => {
+          const isOnline = p.health?.status === 'online';
+          const isConfigured = Boolean(p.apiKey) || p.type === 'local';
+          let statusBadge = isOnline
+            ? '<span class="text-emerald-400 font-semibold font-mono text-[10px]">● Online</span>'
+            : isConfigured
+              ? '<span class="text-cyan-400 font-mono text-[10px]">● Configured</span>'
+              : '<span class="text-slate-500 font-mono text-[10px]">○ Missing Key / Offline</span>';
+
           modalTable.innerHTML += `
-            <div class="flex items-center justify-between p-3 rounded-xl bg-ide-surface border border-ide-border">
-              <div>
-                <span class="font-bold text-white text-xs">${p.name}</span>
-                <span class="text-slate-500 ml-2 font-mono text-[10px]">${p.type.toUpperCase()}</span>
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2.5 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : isConfigured ? 'bg-cyan-400' : 'bg-slate-600'}"></span>
+                  <span class="font-bold text-white text-xs">${p.name}</span>
+                  <span class="text-slate-400 text-[10px] font-mono uppercase bg-ide-panel px-1.5 py-0.5 rounded border border-ide-border">${p.type}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  ${statusBadge}
+                  <button onclick="testProviderConnection('${p.id}')" class="px-2.5 py-0.5 rounded bg-ide-panel hover:bg-ide-hover border border-ide-border text-cyan-300 text-[10px] font-mono transition">Test</button>
+                  ${p.id.startsWith('prov-') ? `<button onclick="deleteProvider('${p.id}')" class="px-2 py-0.5 rounded bg-ide-panel hover:bg-rose-900/60 border border-ide-border text-rose-400 text-[10px]">Delete</button>` : ''}
+                </div>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="text-[10px] font-mono ${p.health?.status === 'online' ? 'text-emerald-400' : 'text-slate-400'}">${p.health?.status || 'offline'}</span>
-                <button onclick="testProviderConnection('${p.id}')" class="px-2 py-0.5 rounded bg-ide-bg hover:bg-ide-hover text-cyan-400 text-[10px]">Test</button>
-                <button onclick="deleteProvider('${p.id}')" class="px-2 py-0.5 rounded bg-ide-bg hover:bg-rose-900 text-rose-400 text-[10px]">Delete</button>
-              </div>
+              ${p.type === 'cloud' ? `
+                <div class="flex items-center gap-2 pt-1">
+                  <input type="password" id="input-key-${p.id}" placeholder="${p.apiKey ? 'Key Configured ✓ (Enter new key to change)' : 'Enter API Key...'}" class="flex-1 bg-ide-panel border border-ide-border rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono" />
+                  <button onclick="updateProviderKey('${p.id}')" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow-sm">Save Key</button>
+                </div>
+              ` : `
+                <div class="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
+                  <span class="font-mono text-[10px]">URL:</span>
+                  <input type="text" id="input-url-${p.id}" value="${p.baseUrl || ''}" placeholder="http://localhost:11434" class="flex-1 bg-ide-panel border border-ide-border rounded-lg px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500" />
+                  <button onclick="updateProviderUrl('${p.id}')" class="px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium text-xs transition">Update</button>
+                </div>
+              `}
             </div>
           `;
         });
@@ -2315,8 +2686,16 @@
       { id: 'git_commit', label: 'Git: Commit Working Tree', action: () => { switchSidebar('git'); document.getElementById('git-commit-msg')?.focus(); } },
       { id: 'ai_select_model', label: 'AI: Focus Model Selector', action: () => document.getElementById('header-model-select')?.focus() },
       { id: 'ai_autonomy', label: 'AI: Change Autonomy Mode (AUTONOMOUS/AGENT/ASSIST/ASK)', action: () => document.getElementById('header-autonomy-mode')?.focus() },
-      { id: 'ai_refresh', label: 'AI: Refresh Providers & Models', action: () => refreshProviders() },
+      { id: 'ai_stop', label: 'AI: Stop Current Running Task', action: () => stopAgentTask() },
+      { id: 'view_focus', label: 'View: Toggle Focus Mode (Ctrl+Shift+F)', action: () => toggleFocusMode() },
+      { id: 'cat_auto', label: 'AI: Select Category — AUTO (Intelligent Routing)', action: () => changeActiveModel('AUTO') },
+      { id: 'cat_coding', label: 'AI: Select Category — CODING Specialist', action: () => changeActiveModel('CODING') },
+      { id: 'cat_reasoning', label: 'AI: Select Category — REASONING Specialist', action: () => changeActiveModel('REASONING') },
+      { id: 'cat_fast', label: 'AI: Select Category — FAST / Low Latency', action: () => changeActiveModel('FAST') },
       { id: 'settings', label: 'Settings: AI Providers & Routing', action: () => openSettingsModal() },
+      { id: 'settings_providers', label: 'Settings: AI Providers & API Keys', action: () => { openSettingsModal(); switchSettingsTab('providers'); } },
+      { id: 'settings_agent', label: 'Settings: Agent Engineering & Autonomy', action: () => { openSettingsModal(); switchSettingsTab('agent'); } },
+      { id: 'settings_privacy', label: 'Settings: Privacy & Safety Boundary', action: () => { openSettingsModal(); switchSettingsTab('security'); } },
     ];
 
     function openCommandPalette() {

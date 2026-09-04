@@ -3,50 +3,60 @@
 MaxIDE is an open-ended, provider-independent, AI-native software engineering environment combining a universal AI Gateway with a complete desktop-grade IDE workspace.
 
 ![MaxIDE Banner](https://img.shields.io/badge/MaxIDE-AI--Native%20IDE-cyan?style=for-the-badge)
-![Ollama](https://img.shields.io/badge/Local%20AI-Ollama%20Free-emerald?style=for-the-badge)
+![Providers](https://img.shields.io/badge/AI%20Providers-OpenAI%20%7C%20Gemini%20%7C%20Anthropic%20%7C%20Groq%20%7C%20Ollama-emerald?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue?style=for-the-badge)
-![Tests Passing](https://img.shields.io/badge/Acceptance%20Tests-38%2F38%20PASS-brightgreen?style=for-the-badge)
+![Production Tests](https://img.shields.io/badge/Production%20Battery-20%2F20%20PASS%20(100%25)-brightgreen?style=for-the-badge)
 
 ---
 
 ## 🌟 Key Capabilities
 
-### 1. Free Local AI & Unlimited Provider Gateway
-- **Zero Subscriptions Required**: Seamlessly connects to local Ollama daemons (`http://localhost:11434`) out-of-the-box.
-- **Pre-Configured Free Models**:
-  - `gemma4:31b-cloud` (Google Gemma 4 31B)
-  - `minimax-m2.7:cloud` (MiniMax M2.7 Coding Engine)
-  - `qwen3.5:397b-cloud` (Qwen 3.5 High-Capacity Model)
-  - `nemotron-70b` (NVIDIA Nemotron Reasoning Engine)
-- **Extensible Providers**: Also supports Google Gemini, Groq LPUs, and any OpenAI-compatible endpoint (vLLM, LM Studio, Ollama, NVIDIA NIM).
+### 1. Production Multi-Provider AI Architecture
+- **Multi-Provider Cloud & Local**: Seamless integration with **Google Gemini**, **OpenAI** (GPT-4o, o1, o3-mini), **Anthropic Claude**, **Groq LPUs**, **Ollama**, and **LM Studio / vLLM**.
+- **Resilient Fallback & Zero Dependency Crash**: MaxIDE never fails or crashes if Ollama is closed. Automatically routes and cascades across active cloud and local providers.
+- **Model Categories**: Dynamic category-based routing:
+  - `AUTO` — Intelligently resolves the optimal active model for current task.
+  - `CODING` — Prioritizes high-precision code synthesis models.
+  - `REASONING` — Routes deep logic, algorithms, and architectural tasks to reasoning models.
+  - `FAST` — Instant interactive conversational responses.
+  - `BALANCED` — Optimized balance of latency and capability.
 
-### 2. Antigravity-Style Autonomous Agent Studio
-- **Autonomous & Assist Modes**: Distinguishes between conversational questions ("Explain React hooks") and software engineering execution tasks ("Build a modern portfolio with Tailwind").
-- **Workbench Action Dispatch**: Natural commands like *"open the portfolio"*, *"show preview"*, or *"open it so that i can see it"* immediately switch Monaco tabs and launch the live web preview.
-- **Clickable File Links**: Every file path mentioned in chat is rendered as an interactive, clickable chip that opens directly in Monaco Editor.
+### 2. Intent-Based Chat vs. Autonomous Agent Engine
+- **Explicit Intent Classifier**: Accurately classifies user prompts into:
+  - `CHAT` & `EXPLAIN` — Returns direct conversational answers with **ZERO file edits**, **ZERO commands**, and **NO unwanted previews**.
+  - `BUILD` & `CODE_EDIT` — Enters the structured 6-stage engineering loop.
+  - `BROWSER_TASK` — Directly routes to external URLs or live application previews.
+  - `GIT_TASK` — Safely inspects status, diffs, and manages commits/pushes.
+  - `DEBUG`, `TEST`, `REFACTOR`, and `PROJECT_TASK`.
+- **6-Stage Engineering Loop**:
+  1. **OBSERVE**: Inspect workspace architecture, dependencies, and requirements.
+  2. **PLAN**: Formulate clear milestones and tool execution sequence.
+  3. **ACT**: Synthesize code, create/edit files, and run commands.
+  4. **VERIFY**: Test the application in real browser environments and run diagnostics.
+  5. **REPAIR**: Detect and auto-resolve any runtime defects or compiler errors.
+  6. **VERIFY AGAIN & COMPLETE**: Confirm verified working state with live preview.
 
-### 3. Live Interactive App Preview & Playwright Verification
-- **Embedded Live Browser**: A real, live interactive preview pane rendered directly within the IDE bottom drawer.
-- **1-Click Fullscreen Tab**: Direct button to launch generated applications in a standalone browser window.
-- **Playwright Headless Chromium Audit**: Headless browser verification testing DOM elements, navigation status, and visual screenshots.
+### 3. Modern AI-Native Studio UX
+- **Live SSE Streaming with Stop Button**: Real-time response streaming over Server-Sent Events (`/api/agent/stream`) with instantaneous cancellation abort controller (`/api/agent/stop`).
+- **Collapsible Activity Progress**: Clean progressive disclosure for thoughts, tool calls, and diagnostics.
+- **Focus Mode (`Ctrl+Shift+F`)**: Instantly expands the editor and preview workspace while keeping agent activity docked.
+- **Command Palette (`Ctrl+K` / `Ctrl+P`)**: Search files, switch autonomy modes, toggle categories, and run commands.
+- **Tabbed Settings Modal**: Unified 5-tab configuration for Providers & API Keys, Agent Autonomy, Editor, Git, and Security & Safety.
 
-### 4. Professional IDE Workbench
-- **Monaco Editor**: Multi-tab editing, line numbers, minimap, keyboard shortcuts (`Ctrl+S`, `Ctrl+K`), and syntax highlighting for 15+ languages.
-- **Reversible AI Diff Viewer**: Inspect exact code patches with `+` additions and `-` deletions before applying or reverting.
-- **SafeTerminal & Security Boundary Guard**: 3-tier risk classifier (`SAFE`, `APPROVAL_REQUIRED`, `BLOCKED`) with workspace containment.
-- **Checkpoints & Instant Rollback**: Byte-for-byte project state snapshots and 1-click restore.
-- **Universal Multi-Format Ingestion**: Drag & drop or attach PDFs, Word `.docx`, Excel `.xlsx`, CSV tabular data, and zip archives with automatic extraction.
+### 4. Isolated Preview Architecture & Playwright Verification
+- **Application Isolation**: Guarantees generated user web apps (`index.html`, `style.css`, `app.js`) are served in complete isolation from the MaxIDE UI.
+- **Dynamic Port & Dev Server Support**: Automatic detection and routing for Vite, Next.js, Express, and static projects.
 
 ---
 
-## 📊 Verification Test Battery (38/38 Tests Passed — 100%)
+## 📊 Verification Test Battery (100% Passed)
 
 | Test Suite | Purpose | Tests | Status |
 | :--- | :--- | :--- | :--- |
-| **`npm test`** | AI Provider Gateway & Failover Chain Acceptance | 16 | **16/16 PASSED** |
-| **`npm run test:e2e`** | Full Antigravity-Style IDE Workbench E2E | 13 | **13/13 PASSED** |
-| **`npm run test:agentic`** | Conversational vs Execution Dispatch & Zip Ingestion | 4 | **4/4 PASSED** |
-| **`npm run test:formats`** | Universal Multi-Format Documents (.pdf, .docx, .xlsx, .csv) | 5 | **5/5 PASSED** |
+| **`npm run test:production`** | Comprehensive 20-Scenario Production Acceptance Suite | 20 | **20/20 PASSED** |
+| **`npm run test:preview`** | Workspace Preview URL Routing & Security Isolation | 10 | **10/10 PASSED** |
+| **`npm test`** | Multi-Provider Gateway & Fallback Chain Acceptance | 16 | **16/16 PASSED** |
+| **`npm run test:e2e`** | Full Autonomous IDE Workbench E2E | 13 | **13/13 PASSED** |
 
 ---
 

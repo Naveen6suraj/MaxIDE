@@ -12,7 +12,7 @@ export interface AIProviderConfig {
   id: string;
   name: string;
   type: ProviderType;
-  apiType: 'openai_compatible' | 'ollama' | 'gemini' | 'groq' | 'anthropic' | 'custom';
+  apiType: 'openai' | 'openai_compatible' | 'ollama' | 'gemini' | 'groq' | 'anthropic' | 'custom';
   baseUrl?: string;
   apiKey?: string;
   defaultModel?: string;

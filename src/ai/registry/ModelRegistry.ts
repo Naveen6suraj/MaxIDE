@@ -149,7 +149,7 @@ export class ModelRegistry {
         if (filters.capabilities.toolCalling && !model.capabilities.toolCalling) return false;
         if (filters.capabilities.vision && !model.capabilities.vision) return false;
         if (filters.capabilities.reasoning && !model.capabilities.reasoning) return false;
-        if (filters.capabilities.codeGeneration && !model.capabilities.codeGeneration) return false;
+        if (filters.capabilities.codeGeneration && !model.capabilities.codeGeneration && !model.capabilities.codeCompletion) return false;
       }
 
       // Filter favorites
