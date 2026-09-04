@@ -8,8 +8,8 @@
     "maxide": "./bin/maxide.js"
   },
   "scripts": {
-    "build": "tsc",
-    "package": "tsc && powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:dist\\MaxIDE.exe /r:System.Windows.Forms.dll desktop\\MaxIDE.cs; Copy-Item dist\\MaxIDE.exe MaxIDE.exe -Force\"",
+    "build": "tsc && powershell -NoProfile -Command \"if (Test-Path 'dist/ui') { Remove-Item -Path 'dist/ui' -Recurse -Force }; Copy-Item -Path 'src/ui' -Destination 'dist/ui' -Recurse -Force\"",
+    "package": "npm run build && powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:dist\\MaxIDE.exe /r:System.Windows.Forms.dll desktop\\MaxIDE.cs; Copy-Item dist\\MaxIDE.exe MaxIDE.exe -Force\"",
     "desktop": "powershell -ExecutionPolicy Bypass -Command \"Start-Process .\\MaxIDE.exe\"",
     "start": "tsx src/server/index.ts",
     "test": "tsx src/tests/acceptance.test.ts",
@@ -21,7 +21,9 @@
     "test:agentic": "tsx src/tests/final_agentic_execution.test.ts",
     "test:formats": "tsx src/tests/universal_formats.test.ts",
     "test:ui": "tsx src/tests/real_ui_acceptance.test.ts",
-    "test:desktop": "tsx src/tests/desktop_persistence.test.ts"
+    "test:desktop": "tsx src/tests/desktop_persistence.test.ts",
+    "test:persistence": "tsx src/tests/persistence_recovery.test.ts",
+    "test:recovery": "tsx src/tests/crash_and_shutdown.test.ts"
   },
   "keywords": [
     "maxide",

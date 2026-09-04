@@ -294,7 +294,7 @@ export class OllamaProvider extends BaseProvider {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }, 45000);
+      }, 120000);
     } catch (err: any) {
       yield { type: 'error', error: `Ollama connection error: ${err.message}` };
       return;

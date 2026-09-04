@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Real Playwright Browser Verification Agent & Tools
  * 
  * Uses real Playwright Chromium browser automation to:
@@ -9,11 +9,18 @@
  * - Interact with UI elements (click, fill)
  * - Capture real PNG screenshots
  * - Enforce model vision capability guard
+ * - Track console errors, page crashes, and diagnostics
  */
 
 import { chromium, Browser, Page } from 'playwright';
 import { ExecutableTool } from '../ToolDefinition.js';
 import { AIModel } from '../../ai/core/AIModel.js';
+
+export interface BrowserLog {
+  type: 'log' | 'warn' | 'error' | 'pageerror';
+  text: string;
+  timestamp: string;
+}
 
 export interface BrowserSession {
   url?: string;
@@ -22,29 +29,52 @@ export interface BrowserSession {
   status?: number;
   lastScreenshotBase64?: string;
   lastHtml?: string;
+  logs?: BrowserLog[];
 }
 
 export class BrowserVerificationAgent {
   private browser: Browser | null = null;
   private page: Page | null = null;
+  private logs: BrowserLog[] = [];
   private session: BrowserSession = { isOpen: false };
 
   public getSession(): BrowserSession {
-    return { ...this.session };
+    return { ...this.session, logs: [...this.logs] };
+  }
+
+  public getLogs(): BrowserLog[] {
+    return [...this.logs];
+  }
+
+  public clearLogs(): void {
+    this.logs = [];
   }
 
   private async ensurePage(): Promise<Page> {
-    if (!this.browser) {
-      this.browser = await chromium.launch({ headless: true });
+    try {
+      if (!this.browser) {
+        this.browser = await chromium.launch({ headless: true });
+      }
+    } catch (err: any) {
+      throw new Error(
+        `Chromium browser could not be launched. Ensure Playwright Chromium is installed (run: npx playwright install chromium). Detail: ${err.message}`
+      );
     }
     if (!this.page) {
       const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 } });
       this.page = await context.newPage();
+      this.page.on('console', (msg) => {
+        const type = msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'log';
+        this.logs.push({ type, text: msg.text(), timestamp: new Date().toISOString() });
+      });
+      this.page.on('pageerror', (err) => {
+        this.logs.push({ type: 'pageerror', text: err.message, timestamp: new Date().toISOString() });
+      });
     }
     return this.page;
   }
 
-  public async navigate(url: string): Promise<{ success: boolean; status: number; title: string }> {
+  public async navigate(url: string): Promise<{ success: boolean; status: number; title: string; errors?: string[] }> {
     try {
       const page = await this.ensurePage();
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -58,10 +88,17 @@ export class BrowserVerificationAgent {
       this.session.pageTitle = title;
       this.session.lastHtml = html.slice(0, 5000);
 
-      return { success: status < 400, status, title };
+      const recentErrors = this.logs.filter(l => l.type === 'error' || l.type === 'pageerror').map(l => l.text);
+
+      return {
+        success: status < 400,
+        status,
+        title,
+        errors: recentErrors.length > 0 ? recentErrors : undefined,
+      };
     } catch (err: any) {
       this.session.pageTitle = 'Navigation Error';
-      return { success: false, status: 500, title: err.message };
+      return { success: false, status: 500, title: err.message, errors: [err.message] };
     }
   }
 
@@ -87,7 +124,7 @@ export class BrowserVerificationAgent {
       };
     } catch (err: any) {
       return {
-        title: this.session.pageTitle || 'Orbit Browser',
+        title: this.session.pageTitle || 'MaxIDE Browser',
         snippet: `DOM error: ${err.message}`,
       };
     }
@@ -147,6 +184,7 @@ export class BrowserVerificationAgent {
     this.page = null;
     this.browser = null;
     this.session = { isOpen: false };
+    this.logs = [];
   }
 }
 
@@ -232,6 +270,20 @@ export function createBrowserTools(browserAgent: BrowserVerificationAgent): Exec
       permissionLevel: 'SAFE',
       execute: async (_args: any, context?: { model?: AIModel }) => {
         return browserAgent.captureScreenshot(context?.model);
+      },
+    },
+    {
+      definition: {
+        name: 'browser_get_logs',
+        description: 'Get recent console messages, warnings, and page errors captured from the browser.',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      permissionLevel: 'SAFE',
+      execute: async () => {
+        return { logs: browserAgent.getLogs() };
       },
     },
   ];

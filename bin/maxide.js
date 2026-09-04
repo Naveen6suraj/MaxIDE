@@ -21,16 +21,39 @@ const rootDir = path.resolve(__dirname, '..');
 
 const args = process.argv.slice(2);
 
-async function checkServerAlive() {
+function getRuntimePortInfo() {
+  try {
+    const localAppData = process.env.LOCALAPPDATA || (process.platform === 'win32' ? path.join(process.env.USERPROFILE || '', 'AppData', 'Local') : '');
+    const portFile = path.join(localAppData, 'MaxIDE', 'runtime', 'port.json');
+    if (fs.existsSync(portFile)) {
+      const data = JSON.parse(fs.readFileSync(portFile, 'utf8'));
+      if (data && data.url) {
+        return data;
+      }
+    }
+  } catch {}
+  return { port: 3456, url: 'http://127.0.0.1:3456' };
+}
+
+async function checkServerAlive(url) {
+  const targetUrl = url || getRuntimePortInfo().url;
   return new Promise((resolve) => {
-    const req = http.get('http://127.0.0.1:3456/api/providers', (res) => {
-      resolve(res.statusCode === 200);
-    });
-    req.on('error', () => resolve(false));
-    req.setTimeout(1500, () => {
-      req.destroy();
+    try {
+      const req = http.get(`${targetUrl}/api/health`, (res) => {
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => {
+          resolve(res.statusCode === 200 && body.includes('MaxIDE'));
+        });
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(1200, () => {
+        req.destroy();
+        resolve(false);
+      });
+    } catch {
       resolve(false);
-    });
+    }
   });
 }
 
@@ -39,8 +62,9 @@ async function printStatus() {
   console.log('       ⚡ MaxIDE Agent Runtime Status');
   console.log('=========================================');
 
-  const isAlive = await checkServerAlive();
-  console.log(`Server Runtime:  ${isAlive ? '● ACTIVE (http://127.0.0.1:3456)' : '○ STOPPED'}`);
+  const portInfo = getRuntimePortInfo();
+  const isAlive = await checkServerAlive(portInfo.url);
+  console.log(`Server Runtime:  ${isAlive ? `● ACTIVE (${portInfo.url})` : '○ STOPPED'}`);
 
   try {
     const { PathManager } = await import('../dist/config/PathManager.js');
@@ -51,8 +75,8 @@ async function printStatus() {
     const projMgr = new ProjectManager(pathMgr.getProjectsFile());
     const activeProj = projMgr.getActiveProject();
 
-    console.log(`Active Project:  ${activeProj ? activeProj.name : 'None'} (${activeProj ? activeProj.activeWorkspace : ''})`);
-    console.log(`Authorized Dirs: ${activeProj ? activeProj.folders.length : 0} directories`);
+    console.log(`Active Project:  ${activeProj ? activeProj.name : 'None'} (${activeProj ? activeProj.activeWorkspace : pathMgr.getDefaultWorkspaceDir()})`);
+    console.log(`Authorized Dirs: ${activeProj ? activeProj.folders.length : 1} directories`);
     console.log(`Autonomy Mode:   ${activeProj ? activeProj.autonomyMode : 'AUTONOMOUS'}`);
 
     const provReg = new ProviderRegistry(pathMgr.getProvidersFile());
@@ -63,9 +87,11 @@ async function printStatus() {
     }
 
     if (isAlive) {
-      const resp = await fetch('http://127.0.0.1:3456/api/missions');
-      const missions = await resp.json();
-      console.log(`Active Missions:   ${Array.isArray(missions) ? missions.length : 0}`);
+      try {
+        const resp = await fetch(`${portInfo.url}/api/missions`);
+        const missions = await resp.json();
+        console.log(`Active Missions: ${Array.isArray(missions) ? missions.length : 0}`);
+      } catch {}
     }
   } catch (err) {
     console.log(`Status details: ${err.message}`);
@@ -76,14 +102,15 @@ async function printStatus() {
 async function runPromptHeadless(prompt) {
   console.log(`\n[MaxIDE CLI] Executing Agent Task: "${prompt}"...`);
 
-  const isAlive = await checkServerAlive();
+  const portInfo = getRuntimePortInfo();
+  const isAlive = await checkServerAlive(portInfo.url);
+
   if (isAlive) {
-    // Execute through running server daemon
     try {
-      const resp = await fetch('http://127.0.0.1:3456/api/agent/run', {
+      const resp = await fetch(`${portInfo.url}/api/agent/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task: prompt, modelId: 'auto' }),
+        body: JSON.stringify({ task: prompt, modelId: 'auto', directory: process.cwd() }),
       });
       const data = await resp.json();
       console.log('\n--- Agent Response ---');
@@ -93,7 +120,7 @@ async function runPromptHeadless(prompt) {
       }
       return;
     } catch (err) {
-      console.warn('Could not post to live server, falling back to local engine:', err.message);
+      console.warn('Could not post to live server, falling back to direct engine:', err.message);
     }
   }
 
@@ -107,17 +134,19 @@ async function runPromptHeadless(prompt) {
     const { AgentEngine } = await import('../dist/agent/AgentEngine.js');
 
     const pathMgr = PathManager.getInstance();
-    const projMgr = new ProjectManager(pathMgr.getProjectsFile());
-    const activeProj = projMgr.getActiveProject();
+    const workspace = process.cwd();
 
     const provReg = new ProviderRegistry(pathMgr.getProvidersFile());
     const modReg = new ModelRegistry(provReg);
+    try {
+      await modReg.discoverAllModels();
+    } catch {}
     const gateway = new AIGateway(provReg, modReg, 'cloud');
-    const engine = new AgentEngine(gateway, activeProj.activeWorkspace);
+    const engine = new AgentEngine(gateway, workspace);
 
     const outcome = await engine.processMessage(prompt, { modelId: 'auto' });
     console.log('\n--- Agent Result ---');
-    console.log(outcome.answer);
+    console.log(outcome.answer || outcome.finalAnswer);
   } catch (err) {
     console.error('[MaxIDE CLI Error]', err);
   }
@@ -125,21 +154,27 @@ async function runPromptHeadless(prompt) {
 
 function launchDesktop(targetProject) {
   console.log('[MaxIDE] Launching desktop application...');
-  const exePath = path.join(rootDir, 'MaxIDE.exe');
+  const exeCandidates = [
+    path.join(rootDir, 'MaxIDE.exe'),
+    path.join(rootDir, 'dist', 'MaxIDE.exe'),
+  ];
 
-  if (fs.existsSync(exePath)) {
+  const exePath = exeCandidates.find(p => fs.existsSync(p));
+
+  if (exePath) {
     const child = spawn(exePath, [], {
       detached: true,
       stdio: 'ignore',
-      cwd: rootDir,
+      cwd: path.dirname(exePath),
     });
     child.unref();
   } else {
-    // Fallback start npm run dev
+    // Start node server directly
     console.log('[MaxIDE] Starting server runtime...');
-    const child = spawn('npm.cmd', ['start'], {
+    const serverJs = path.join(rootDir, 'dist', 'server', 'index.js');
+    const child = spawn(process.execPath, [serverJs], {
       detached: true,
-      stdio: 'inherit',
+      stdio: 'ignore',
       cwd: rootDir,
     });
     child.unref();
@@ -179,3 +214,4 @@ async function main() {
 }
 
 main().catch(console.error);
+

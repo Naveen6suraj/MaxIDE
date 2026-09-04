@@ -1,3 +1,4 @@
+import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
 /**
  * MaxIDE - Unlimited AI Provider Platform
  * REST API Routes for Workspace, Providers, Models, Terminal, Checkpoints, and Agent Engine
@@ -19,6 +20,7 @@ import { runFinalRealVerification } from '../tests/final_real_verification.js';
 import { ProjectManager } from '../projects/ProjectManager.js';
 import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
+import { PathManager } from '../config/PathManager.js';
 
 export function createApiRouter(
   providerRegistry: ProviderRegistry,
@@ -28,9 +30,42 @@ export function createApiRouter(
   missionControl: MissionControl,
   projectManager: ProjectManager = new ProjectManager(),
   conversationStore: ConversationStore = new ConversationStore(),
-  permissionManager: PermissionManager = new PermissionManager()
+  permissionManager: PermissionManager = new PermissionManager(),
+  recoveryManager?: RecoveryManager
 ): Router {
   const router = Router();
+
+  // --- 0. Production Health & System Readiness ---
+  router.get('/health', (req, res) => {
+    try {
+      const activeProject = projectManager.getActiveProject();
+      res.json({
+        status: 'healthy',
+        app: 'MaxIDE',
+        version: '1.0.0',
+        pid: process.pid,
+        uptime: process.uptime(),
+        workspace: agentEngine.workspaceManager.getRootPath(),
+        activeProject: activeProject?.name || 'None',
+        providersCount: providerRegistry.getAllProviders().length,
+        modelsCount: modelRegistry.getAllModels().length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', error: err.message });
+    }
+  });
+
+  router.get('/workspace/default-path', (req, res) => {
+    try {
+      const pathMgr = PathManager.getInstance();
+      res.json({
+        defaultWorkspace: pathMgr.getDefaultWorkspaceDir(),
+        userDataDir: pathMgr.userDataDir,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // --- 1. Workspace & Filesystem ---
   router.get('/workspace/tree', (req, res) => {
@@ -326,8 +361,12 @@ export function createApiRouter(
 
   router.post('/agent/run', async (req, res) => {
     try {
-      const { task, modelId, maxSteps, contextMentions, attachments, autonomyMode } = req.body;
+      const { task, modelId, maxSteps, contextMentions, attachments, autonomyMode, directory } = req.body;
       if (!task) return res.status(400).json({ error: 'Task is required' });
+
+      if (directory && fs.existsSync(directory)) {
+        agentEngine.setWorkspaceRoot(directory);
+      }
 
       // Process any uploaded attachments
       let enrichedContext = contextMentions || '';
@@ -371,7 +410,33 @@ export function createApiRouter(
         modelId,
         maxSteps: maxSteps ? Number(maxSteps) : 25,
         contextMentions: enrichedContext || undefined,
+        sessionId: conversationId || (convRecord ? convRecord.id : undefined),
       });
+
+      if (outcome.actionType === 'clarification') {
+        missionControl.updateMissionStatus(mission.id, 'WAITING_APPROVAL');
+        convRecord.taskStatus = 'WAITING_APPROVAL';
+        convRecord.messages.push({
+          id: `msg-clarify-${Date.now()}`,
+          role: 'assistant',
+          content: outcome.answer,
+          timestamp: new Date().toISOString(),
+          autoModel: outcome.autoModel,
+        });
+        conversationStore.saveConversation(convRecord);
+
+        return res.json({
+          success: true,
+          status: 'clarification_needed',
+          actionType: 'clarification',
+          summary: outcome.answer,
+          finalAnswer: outcome.answer,
+          questions: outcome.questions || outcome.clarification?.questions,
+          suggestedActions: outcome.suggestedActions,
+          conversationId: convRecord.id,
+          autoModel: outcome.autoModel,
+        });
+      }
 
       const finalAnswer = outcome.answer || (outcome.agentResult?.success ? 'Task completed successfully.' : (outcome.agentResult?.error || 'Task finished.'));
       convRecord.taskStatus = outcome.agentResult?.success === false ? 'FAILED' : 'COMPLETED';
@@ -656,7 +721,7 @@ export function createApiRouter(
         gitWorktreeMode,
         description,
       });
-      agentEngine.workspaceManager.setRootPath(proj.activeWorkspace);
+      agentEngine.setWorkspaceRoot(proj.activeWorkspace);
       res.json(proj);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -684,7 +749,7 @@ export function createApiRouter(
   router.post('/projects/:id/switch', (req, res) => {
     try {
       const proj = projectManager.setActiveProject(req.params.id);
-      agentEngine.workspaceManager.setRootPath(proj.activeWorkspace);
+      agentEngine.setWorkspaceRoot(proj.activeWorkspace);
       res.json({ success: true, project: proj });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -777,6 +842,104 @@ export function createApiRouter(
     try {
       const tasks = conversationStore.getInterruptedTasks();
       res.json({ interruptedTasks: tasks });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/system/recovery/:id/analyze', async (req, res) => {
+    try {
+      if (!recoveryManager) return res.status(500).json({ error: 'RecoveryManager not initialized' });
+      const analysis = await recoveryManager.analyzeInterruptedTask(req.params.id);
+      res.json(analysis);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/recovery/:id/continue', async (req, res) => {
+    try {
+      if (!recoveryManager) return res.status(500).json({ error: 'RecoveryManager not initialized' });
+      const result = await recoveryManager.resumeInterruptedTask(req.params.id, req.body || {});
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/recovery/:id/discard', (req, res) => {
+    try {
+      const conv = conversationStore.getConversation(req.params.id);
+      if (conv) {
+        conv.taskStatus = 'CANCELLED';
+        conversationStore.saveConversation(conv);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Project Snapshots & Multi-Day History
+  router.get('/projects/:id/snapshots', (req, res) => {
+    try {
+      const snaps = agentEngine.checkpointManager.listSnapshots(req.params.id);
+      res.json(snaps);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:id/snapshots', async (req, res) => {
+    try {
+      const { name, description } = req.body;
+      const snap = await agentEngine.checkpointManager.createNamedSnapshot(
+        name || 'Snapshot',
+        description,
+        req.params.id
+      );
+      res.json(snap);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:id/snapshots/:snapshotId/restore', async (req, res) => {
+    try {
+      const outcome = await agentEngine.checkpointManager.restoreCheckpoint(req.params.snapshotId);
+      res.json(outcome);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/projects/:id/history', (req, res) => {
+    try {
+      const grouped = conversationStore.getGroupedByDate(req.params.id);
+      res.json(grouped);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/projects/:id/diff-since-last', async (req, res) => {
+    try {
+      const checkpoints = agentEngine.checkpointManager.listCheckpoints(req.params.id);
+      if (checkpoints.length > 0) {
+        const deltas = await agentEngine.checkpointManager.compareChanges(checkpoints[0].id);
+        res.json({ checkpoint: checkpoints[0], deltas });
+      } else {
+        res.json({ deltas: [] });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/projects/:id/last-session-summary', (req, res) => {
+    try {
+      const list = conversationStore.listByProject(req.params.id);
+      res.json({ lastSession: list[0] || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

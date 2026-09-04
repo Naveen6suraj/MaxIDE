@@ -330,7 +330,7 @@
           <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-indigo-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 shadow-xl">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
           </div>
-          <h2 class="text-base font-semibold text-white mb-1">Orbit IDE Workspace</h2>
+          <h2 class="text-base font-semibold text-white mb-1">MaxIDE Workspace</h2>
           <p class="text-xs text-slate-400 max-w-sm mb-6">Open any file from the explorer on the left, or launch an autonomous coding task with the AI Agent.</p>
           <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 font-mono">
             <div class="p-2 rounded bg-ide-surface border border-ide-border flex items-center justify-between gap-4">
@@ -448,7 +448,7 @@
           <div id="bview-tests" class="absolute inset-0 flex flex-col p-3 bg-ide-bg hidden overflow-y-auto custom-scrollbar">
             <div class="flex items-center justify-between mb-3">
               <div>
-                <h4 class="font-bold text-white text-xs">Orbit Verification Battery</h4>
+                <h4 class="font-bold text-white text-xs">MaxIDE Verification Battery</h4>
                 <p class="text-[11px] text-slate-400">16 Provider Tests + 13 IDE E2E Tests + Live Real-World Audit</p>
               </div>
               <button onclick="runAllSuites()" id="btn-run-all-suites" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-xs shadow-md transition-colors">
@@ -578,7 +578,7 @@
       <span id="status-privacy-mode" class="text-emerald-400">Cloud AI</span>
     </div>
     <div class="flex items-center gap-3">
-      <span id="status-active-model" class="text-slate-300">gemma4:31b-cloud</span>
+      <span id="status-active-model" class="text-slate-300">qwen2.5-coder:0.5b</span>
       <span class="text-slate-600">|</span>
       <span id="status-line-col">Ln 1, Col 1</span>
       <span class="text-slate-600">|</span>
@@ -870,6 +870,7 @@
       activeMode: 'cloud',
       autonomyMode: 'AUTONOMOUS',
       activeModelId: null,
+      activeConversationId: null,
       pendingApproval: null,
       sidebarOpen: true,
       bottomPanelOpen: true,
@@ -879,6 +880,16 @@
       currentAgentTab: 'chat',
       activePatch: null,
     };
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     // --- Monaco Editor AMD Setup ---
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.48.0/min/vs' } });
@@ -1087,7 +1098,7 @@
         const data = await res.json();
         const rootPath = data.rootPath || data.workspaceRoot || '';
         state.workspaceRoot = rootPath;
-        const baseName = rootPath ? rootPath.split(/[\/\\]/).pop() : 'orbit-ai-gateway';
+        const baseName = rootPath ? rootPath.split(/[\/\\]/).pop() : 'MaxIDE-Workspace';
         document.getElementById('header-project-name').textContent = baseName;
 
         const container = document.getElementById('file-tree-container');
@@ -1602,17 +1613,48 @@
       if (status === 'Idle') {
         badge.className = 'px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 text-[10px] font-mono';
         dot.className = 'w-2 h-2 rounded-full bg-cyan-400 pulse-dot';
-      } else if (['Planning', 'Inspecting', 'Editing', 'Running', 'Testing', 'Verifying', 'Fixing'].includes(status)) {
-        badge.className = 'px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono animate-pulse';
+      } else if (status === 'I need a little more information' || status === 'Clarification') {
+        badge.className = 'px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-500/50 text-amber-300 text-[10px] font-mono animate-pulse';
         dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
-      } else if (status === 'Complete') {
+      } else if (status === 'Complete' || status === 'Completed') {
         badge.className = 'px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono';
         dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+      } else if (['Understanding request...', 'Planning...', 'Working on files...', 'Running application...', 'Testing in browser...', 'Planning', 'Inspecting', 'Editing', 'Running', 'Testing', 'Verifying', 'Fixing'].includes(status)) {
+        badge.className = 'px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono animate-pulse';
+        dot.className = 'w-2 h-2 rounded-full bg-cyan-400 animate-ping';
       } else {
         badge.className = 'px-1.5 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-300 text-[10px] font-mono';
         dot.className = 'w-2 h-2 rounded-full bg-rose-400';
       }
     }
+
+    // Window helper for clarification options
+    window.submitClarificationOption = function(optionText, conversationId) {
+      if (conversationId) {
+        state.activeConversationId = conversationId;
+      }
+      const input = document.getElementById('agent-prompt-input');
+      if (input) {
+        input.value = optionText;
+      }
+      dispatchAgentTask();
+    };
+
+    // Delegated click listener for clarification option buttons
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('agent-chat-messages')?.addEventListener('click', function(e) {
+        const btn = e.target.closest('.clarification-opt-btn');
+        if (btn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const opt = btn.getAttribute('data-option');
+          const conv = btn.getAttribute('data-conv');
+          if (opt) {
+            submitClarificationOption(opt, conv);
+          }
+        }
+      });
+    });
 
     // --- AI Agent Dispatch & Execution ---
     async function dispatchAgentTask() {
@@ -1624,7 +1666,7 @@
       const btn = document.getElementById('btn-agent-send');
       btn.disabled = true;
       btn.innerHTML = '<span class="animate-pulse">Thinking...</span>';
-      setAgentStateBadge('Planning');
+      setAgentStateBadge('Understanding request...');
 
       const attachmentsToSend = [...state.stagedAttachments];
       state.stagedAttachments = [];
@@ -1683,8 +1725,6 @@
       }
     }
 
-      setAgentStateBadge('Running');
-
       try {
         const res = await fetch('/api/agent/run', {
           method: 'POST',
@@ -1695,6 +1735,7 @@
             autonomyMode: state.autonomyMode || 'AUTONOMOUS',
             maxSteps: 25,
             attachments: attachmentsToSend,
+            conversationId: state.activeConversationId,
           }),
         });
         if (!res.ok) {
@@ -1711,7 +1752,9 @@
 
         const outcome = await res.json();
 
-        setAgentStateBadge(outcome.success ? 'Complete' : 'Error');
+        if (outcome.conversationId) {
+          state.activeConversationId = outcome.conversationId;
+        }
 
         let cardHtml = '';
         const actionPills = [];
@@ -1752,7 +1795,47 @@
           </div>
         ` : '';
 
-        if (outcome.actionType === 'conversation' || outcome.actionType === 'workbench_action') {
+        // Clarification-Needed Card
+        if (outcome.actionType === 'clarification' || outcome.status === 'clarification_needed') {
+          setAgentStateBadge('I need a little more information');
+
+          const questionsHtml = (outcome.questions || []).map(q => `
+            <div class="space-y-1.5 pt-1">
+              <p class="font-semibold text-white text-xs">${escapeHtml(q.question)}</p>
+              <div class="grid grid-cols-1 gap-1.5 pl-1">
+                ${(q.options || []).map(opt => {
+                  const safeOpt = escapeHtml(opt);
+                  const safeConv = escapeHtml(outcome.conversationId || state.activeConversationId || '');
+                  return `
+                    <button type="button" data-option="${safeOpt}" data-conv="${safeConv}" onclick="submitClarificationOption(this.getAttribute('data-option'), this.getAttribute('data-conv'))" class="clarification-opt-btn text-left px-3 py-2 rounded-lg bg-ide-panel hover:bg-cyan-950/60 border border-ide-border hover:border-cyan-500/50 text-slate-200 hover:text-white text-xs transition flex items-center justify-between group cursor-pointer shadow-sm">
+                      <span>${safeOpt}</span>
+                      <span class="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition font-mono">Select ↵</span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `).join('');
+
+          cardHtml = `
+            <div class="p-3.5 rounded-xl bg-ide-surface border border-cyan-500/50 space-y-2.5 shadow-lg">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                  <span class="font-bold text-amber-300 text-[11px] font-mono">I NEED A LITTLE MORE INFORMATION</span>
+                </div>
+                <span class="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono">Clarification Gate</span>
+              </div>
+              ${autoModelBadge}
+              <p class="text-xs text-slate-300 leading-relaxed">To ensure MaxIDE builds exactly what you need, please choose an option or tell me what you prefer:</p>
+              ${questionsHtml}
+              <div class="pt-1 text-[10px] text-slate-400 italic">
+                Tip: You can click any option above, or type custom instructions in the chat box below.
+              </div>
+            </div>
+          `;
+        } else if (outcome.actionType === 'conversation' || outcome.actionType === 'workbench_action') {
+          setAgentStateBadge('Completed');
           cardHtml = `
             <div class="p-3.5 rounded-xl bg-ide-surface border border-cyan-500/30 space-y-2 shadow-lg">
               <div class="flex items-center justify-between">
@@ -1770,6 +1853,7 @@
             </div>
           `;
         } else {
+          setAgentStateBadge(outcome.success ? 'Completed' : 'Error');
           cardHtml = `
             <div class="p-3.5 rounded-xl bg-ide-surface border ${outcome.success ? 'border-emerald-500/40' : 'border-rose-500/40'} space-y-2 shadow-lg">
               <div class="flex items-center justify-between">
@@ -1821,9 +1905,33 @@
       }
     }
 
+    function isToolEnvelopeText(str) {
+      if (!str || typeof str !== 'string') return false;
+      const trimmed = str.trim();
+      return (
+        trimmed.includes('"name": "build_') || trimmed.includes('"name":"build_') ||
+        trimmed.includes('"name": "create_') || trimmed.includes('"name":"create_') ||
+        trimmed.includes('"name": "make_') || trimmed.includes('"name":"make_') ||
+        trimmed.includes('build_website_') || trimmed.includes('build_messenger_') ||
+        (trimmed.includes('"name":') && (trimmed.includes('"arguments":') || trimmed.includes('"project_root"') || trimmed.includes('"autonomy_mode"')))
+      );
+    }
+
+    function sanitizeUserPaths(str) {
+      if (!str || typeof str !== 'string') return '';
+      return str.replace(/[A-Za-z]:[\\/](?:Users|home)[\\/][^\\/]+[\\/](?:Desktop|Documents|Downloads)[\\/][^\\/]+[\\/]/gi, './')
+                .replace(/[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]AppData[\\/]Local[\\/]Temp[\\/][^\\/]+[\\/]/gi, './')
+                .replace(/\/Users\/[^\/]+\/(?:Desktop|Documents|Downloads)\/[^\/]+\//gi, './')
+                .replace(/[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]/gi, '~/');
+    }
+
     function formatMarkdownText(text) {
       if (!text) return '';
-      let escaped = String(text)
+      if (isToolEnvelopeText(text)) {
+        return '<div class="p-2.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs">⚡ Verified: MaxIDE executed registered actions and updated project files.</div>';
+      }
+      let cleaned = sanitizeUserPaths(String(text));
+      let escaped = cleaned
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
@@ -2009,6 +2117,12 @@
       state.activeModelId = data.activeModelId;
       document.getElementById('select-ai-mode').value = data.mode;
       document.getElementById('status-privacy-mode').textContent = data.mode === 'local' ? 'Local Only 🛡️' : 'Cloud AI';
+      if (data.activeModelId) {
+        const select = document.getElementById('header-model-select');
+        if (select) select.value = data.activeModelId;
+        const statusModel = document.getElementById('status-active-model');
+        if (statusModel) statusModel.textContent = data.activeModelId;
+      }
     }
 
     async function changeAIMode(mode) {
@@ -2078,6 +2192,12 @@
         select.appendChild(opt);
       });
 
+      // Synchronize footer active model display
+      const statusModel = document.getElementById('status-active-model');
+      if (statusModel) {
+        statusModel.textContent = select.value || state.activeModelId || 'qwen2.5-coder:0.5b';
+      }
+
       const modalTable = document.getElementById('modal-providers-table');
       if (modalTable) {
         modalTable.innerHTML = '';
@@ -2119,12 +2239,15 @@
     async function changeActiveModel(modelId) {
       if (!modelId) return;
       state.activeModelId = modelId;
+      const select = document.getElementById('header-model-select');
+      if (select && select.value !== modelId) select.value = modelId;
+      const statusEl = document.getElementById('status-active-model');
+      if (statusEl) statusEl.textContent = modelId;
       await fetch('/api/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeModelId: modelId }),
       });
-      document.getElementById('status-active-model').textContent = modelId;
     }
 
     function openSettingsModal() {
@@ -2306,22 +2429,28 @@
     }
 
     async function scaffoldStarterTemplate(template) {
-      const name = prompt('Project directory name:', `orbit-${template}-app`);
+      const name = prompt('Project directory name:', `maxide-${template}-app`);
       if (!name) return;
-      const targetDir = `C:\\Users\\Naveen Suraj\\.gemini\\antigravity\\scratch\\${name}`;
-      const res = await fetch('/api/workspace/create-project', {
+      let targetDir = name;
+      try {
+        const pathRes = await fetch('/api/workspace/default-path').then(r => r.json());
+        if (pathRes.defaultWorkspace) {
+          targetDir = `${pathRes.defaultWorkspace}/${name}`;
+        }
+      } catch {}
+      const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: targetDir, template }),
+        body: JSON.stringify({ name, folders: [targetDir], description: `${template} starter template` }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (data.id || data.name) {
         closeProjectSwitcherModal();
         state.openTabs = [];
         state.activeTabPath = null;
         await fetchWorkspaceTree();
       } else {
-        alert(`Error creating project: ${data.error}`);
+        alert(`Error creating project: ${data.error || 'Unknown error'}`);
       }
     }
 
@@ -2899,30 +3028,122 @@
           const task = data.interruptedTasks[0];
           const feed = document.getElementById('agent-chat-messages');
           if (feed) {
-            feed.innerHTML = `
-              <div class="p-3.5 rounded-xl bg-purple-950/80 border border-purple-500/50 text-purple-200 text-xs mb-3 space-y-2 shadow-lg">
+            const completedCount = (task.toolCalls && task.toolCalls.length) || (task.filesChanged && task.filesChanged.length) || 1;
+            const bannerId = 'banner-recovery-' + task.id;
+            const existing = document.getElementById(bannerId);
+            if (existing) existing.remove();
+
+            const bannerHtml = `
+              <div id="${bannerId}" class="p-4 rounded-2xl bg-purple-950/90 border border-purple-500/60 text-purple-200 text-xs mb-4 space-y-3 shadow-2xl backdrop-blur">
                 <div class="flex items-center justify-between font-bold text-purple-300">
-                  <span class="flex items-center gap-1.5">⚠️ Interrupted Task Detected</span>
-                  <span class="font-mono text-[10px] text-purple-400">Crash / Restart Recovery</span>
+                  <span class="flex items-center gap-2 text-sm font-semibold">✨ Welcome Back — Work Saved</span>
+                  <span class="font-mono text-[10px] px-2 py-0.5 rounded bg-purple-900/60 border border-purple-500/40 text-purple-300">Interrupted Task</span>
                 </div>
-                <p class="text-[11px] text-slate-300">
-                  Task: <strong>"${escapeHtml(task.title || '')}"</strong> was running when MaxIDE last closed.
+                <p class="text-[11px] text-slate-200 leading-relaxed">
+                  Your previous task was interrupted when MaxIDE closed. Your project state, plan, and files are safely preserved. You can continue seamlessly from the last completed step.
                 </p>
-                <div class="flex items-center gap-2 pt-1">
-                  <button onclick="resumeConversationInChat('${task.id}')" class="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs shadow-sm">
-                    ▶ Resume Task
+                <div class="p-2.5 rounded-xl bg-black/40 border border-purple-500/30 text-[11px] font-mono space-y-1 text-slate-300">
+                  <div><strong class="text-purple-300">Project:</strong> ${escapeHtml(task.projectId || 'Default Project')}</div>
+                  <div><strong class="text-purple-300">Task:</strong> ${escapeHtml(task.title || task.taskPrompt || 'Task')}</div>
+                  <div><strong class="text-purple-300">Progress:</strong> ${completedCount} operations completed</div>
+                  <div><strong class="text-purple-300">Last known state:</strong> Ready to resume remaining operations</div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                  <button onclick="continueInterruptedTask('${task.id}')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md flex items-center gap-1.5 transition">
+                    ▶ Continue Task
                   </button>
-                  <button onclick="this.parentElement.parentElement.remove()" class="px-2.5 py-1 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-400 text-xs">
-                    Dismiss
+                  <button onclick="reviewTaskChanges('${task.id}')" class="px-3 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white font-medium text-xs transition">
+                    🔍 Review Changes
+                  </button>
+                  <button onclick="startNewTaskFromBanner('${bannerId}')" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition">
+                    ➕ Start New Task
+                  </button>
+                  <button onclick="discardInterruptedTask('${task.id}', '${bannerId}')" class="px-2.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-400 text-xs transition">
+                    ✕ Discard
                   </button>
                 </div>
               </div>
-            ` + feed.innerHTML;
+            `;
+            feed.innerHTML = bannerHtml + feed.innerHTML;
           }
         } else if (manual) {
-          alert('No interrupted tasks detected.');
+          alert('No interrupted tasks detected. All tasks are complete!');
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Failed to check interrupted tasks:', err);
+      }
+    }
+
+    async function continueInterruptedTask(convId) {
+      const banner = document.getElementById('banner-recovery-' + convId);
+      if (banner) {
+        banner.innerHTML = `
+          <div class="flex items-center gap-3 text-cyan-300 text-xs py-2">
+            <svg class="animate-spin h-4 w-4 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span>RecoveryManager is inspecting workspace and resuming task...</span>
+          </div>
+        `;
+      }
+
+      try {
+        const res = await fetch(`/api/system/recovery/${convId}/continue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (data.success && data.result) {
+          if (banner) banner.remove();
+          await resumeConversationInChat(convId);
+          await fetchWorkspaceTree();
+          if (data.result.openFile) openEditorTab(data.result.openFile);
+          if (data.result.openPreview) navigateBrowser(data.result.openPreview);
+        } else {
+          alert('Failed to resume task: ' + (data.error || 'Unknown error'));
+          if (banner) banner.remove();
+        }
+      } catch (err) {
+        alert('Error resuming task: ' + err.message);
+        if (banner) banner.remove();
+      }
+    }
+
+    async function reviewTaskChanges(convId) {
+      try {
+        const res = await fetch(`/api/system/recovery/${convId}/analyze`);
+        const analysis = await res.json();
+        if (analysis) {
+          const completedList = (analysis.completedOperations || []).map(o => '• ' + o).join('\n') || 'None';
+          const remainingList = (analysis.remainingOperations || []).map(o => '• ' + o).join('\n') || 'Verification & Finalization';
+          const filesList = (analysis.existingFiles || []).join(', ') || 'None';
+          const userEdits = (analysis.userModifiedFiles || []).map(e => e.path).join(', ') || 'None';
+
+          alert(
+            `--- Recovery Analysis ---\n\n` +
+            `Task: ${analysis.taskTitle}\n\n` +
+            `Existing Files:\n${filesList}\n\n` +
+            `External User Edits Detected:\n${userEdits}\n\n` +
+            `Completed Operations:\n${completedList}\n\n` +
+            `Remaining Operations:\n${remainingList}`
+          );
+        }
+      } catch (err) {
+        alert('Could not inspect changes: ' + err.message);
+      }
+    }
+
+    function startNewTaskFromBanner(bannerId) {
+      const el = document.getElementById(bannerId);
+      if (el) el.remove();
+      const input = document.getElementById('agent-input');
+      if (input) input.focus();
+    }
+
+    async function discardInterruptedTask(convId, bannerId) {
+      if (!confirm('Are you sure you want to discard this interrupted task?')) return;
+      await fetch(`/api/system/recovery/${convId}/discard`, { method: 'POST' });
+      const el = document.getElementById(bannerId);
+      if (el) el.remove();
     }
   </script>
 </body>

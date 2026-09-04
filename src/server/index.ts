@@ -19,6 +19,7 @@ import { PathManager } from '../config/PathManager.js';
 import { ProjectManager } from '../projects/ProjectManager.js';
 import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
+import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
 
 dotenv.config();
 
@@ -125,6 +126,10 @@ const gateway = new AIGateway(providerRegistry, modelRegistry, 'cloud');
 const activeProject = projectManager.getActiveProject();
 const effectiveWorkspace = activeProject?.activeWorkspace || workspaceDir;
 const agentEngine = new AgentEngine(gateway, effectiveWorkspace);
+const recoveryManager = new RecoveryManager(conversationStore, projectManager, agentEngine.checkpointManager, agentEngine);
+agentEngine.setRecoveryManager(recoveryManager);
+agentEngine.setConversationStore(conversationStore);
+conversationStore.markInterruptedTasks();
 const missionControl = new MissionControl();
 
 // Seed initial default provider templates if empty
@@ -212,7 +217,8 @@ app.use('/api', createApiRouter(
   missionControl,
   projectManager,
   conversationStore,
-  permissionManager
+  permissionManager,
+  recoveryManager
 ));
 
 // API Error handling middleware (catches body-parser errors, 413s, etc.)
@@ -243,13 +249,45 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(uiDir, 'index.html'));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n=============================================================`);
   console.log(`  🚀 MAXIDE - UNLIMITED AI PROVIDER PLATFORM ACTIVE           `);
   console.log(`  📍 Gateway Server: http://localhost:${PORT}                   `);
   console.log(`  🎨 UI Studio:      http://localhost:${PORT}                   `);
   console.log(`  🛡️ Privacy Mode:   ${gateway.getAIMode().toUpperCase()}     `);
   console.log(`=============================================================\n`);
+
+  try {
+    const portFile = pathManager.getPortFile();
+    const portDir = path.dirname(portFile);
+    if (!fs.existsSync(portDir)) {
+      fs.mkdirSync(portDir, { recursive: true });
+    }
+    const portInfo = {
+      port: PORT,
+      url: `http://127.0.0.1:${PORT}`,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      app: 'MaxIDE',
+      version: '1.0.0'
+    };
+    fs.writeFileSync(portFile, JSON.stringify(portInfo, null, 2), 'utf8');
+  } catch (err: any) {
+    console.warn('[MaxIDE] Failed to write runtime port file:', err.message);
+  }
 });
+
+function cleanupAndExit() {
+  try {
+    const portFile = pathManager.getPortFile();
+    if (fs.existsSync(portFile)) {
+      fs.unlinkSync(portFile);
+    }
+  } catch {}
+  process.exit(0);
+}
+
+process.on('SIGINT', cleanupAndExit);
+process.on('SIGTERM', cleanupAndExit);
 
 export { app, providerRegistry, modelRegistry, gateway, agentEngine };

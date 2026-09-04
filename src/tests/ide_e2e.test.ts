@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Phase 2 End-to-End Acceptance Test Suite (Tests A through M)
  * 
  * Verifies all 13 core IDE & Agent capabilities:
@@ -43,7 +43,7 @@ interface TestStepResult {
 
 export async function runIdeE2ETests(): Promise<{ passed: boolean; results: TestStepResult[] }> {
   console.log('\n===============================================================');
-  console.log('  ORBIT IDE: FULL ANTIGRAVITY-STYLE IDE E2E ACCEPTANCE SUITE   ');
+  console.log('  MAXIDE: FULL ANTIGRAVITY-STYLE IDE E2E ACCEPTANCE SUITE      ');
   console.log('===============================================================\n');
 
   const results: TestStepResult[] = [];

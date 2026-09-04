@@ -1,15 +1,16 @@
-﻿/**
+/**
  * MaxIDE - Unlimited AI Provider Platform
  * Persistent Project & Multi-Folder Manager
  * 
  * Manages user projects with multiple authorized folders,
- * persistent preferences, and active workspace state.
+ * persistent preferences, active workspace state, and atomic storage.
  */
 
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { PathManager } from '../config/PathManager.js';
+import { AtomicStorage } from '../storage/AtomicStorage.js';
 
 export interface ProjectFolder {
   path: string;
@@ -17,19 +18,42 @@ export interface ProjectFolder {
   isPrimary: boolean;
 }
 
+export interface ProjectGitInfo {
+  branch?: string;
+  headCommit?: string;
+  isClean?: boolean;
+  lastChecked?: string;
+}
+
 export interface ProjectMetadata {
   id: string;
   name: string;
   folders: string[]; // List of absolute paths authorized for this project
   activeWorkspace: string; // The primary active folder
+  projectPath?: string;
   providerId?: string;
   modelId?: string;
+  activeModel?: string;
   autonomyMode?: 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
   permissions?: Record<string, boolean>;
   gitWorktreeMode?: 'LOCAL' | 'WORKTREE';
+  gitInfo?: ProjectGitInfo;
   createdAt: string;
   lastOpened: string;
+  lastActivityDate?: string;
   conversations: string[];
+  currentConversationId?: string;
+  activeTaskId?: string;
+  taskStatus?: 'WORKING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED' | 'PAUSED' | 'RECOVERABLE';
+  lastCheckpointId?: string;
+  artifacts?: Array<{
+    path: string;
+    name: string;
+    type: string;
+    timestamp?: string;
+  }>;
+  recentFiles?: string[];
+  settings?: Record<string, any>;
   tags?: string[];
   description?: string;
 }
@@ -47,55 +71,58 @@ export class ProjectManager {
   }
 
   private load(): void {
-    if (!fs.existsSync(this.projectsFile)) {
-      return;
-    }
-    try {
-      const raw = fs.readFileSync(this.projectsFile, 'utf-8');
-      const data = JSON.parse(raw);
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          if (item && item.id) {
-            this.projects.set(item.id, item);
-          }
+    const data = AtomicStorage.safeReadJsonSync<any[]>(this.projectsFile, []);
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item && item.id) {
+          // Normalize model fields
+          if (item.modelId && !item.activeModel) item.activeModel = item.modelId;
+          if (item.activeModel && !item.modelId) item.modelId = item.activeModel;
+          if (!item.lastActivityDate) item.lastActivityDate = item.lastOpened || item.createdAt;
+          if (!item.recentFiles) item.recentFiles = [];
+          if (!item.artifacts) item.artifacts = [];
+          if (!item.settings) item.settings = {};
+          this.projects.set(item.id, item);
         }
       }
-      if (this.projects.size > 0 && !this.activeProjectId) {
-        // Pick most recently opened
-        const sorted = this.listProjects();
-        this.activeProjectId = sorted[0]?.id;
-      }
-    } catch (err) {
-      console.warn('[ProjectManager] Could not read projects file:', err);
+    }
+    if (this.projects.size > 0 && !this.activeProjectId) {
+      const sorted = this.listProjects();
+      this.activeProjectId = sorted[0]?.id;
     }
   }
 
   private save(): void {
     try {
-      const dir = path.dirname(this.projectsFile);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       const array = Array.from(this.projects.values());
-      fs.writeFileSync(this.projectsFile, JSON.stringify(array, null, 2), 'utf-8');
-    } catch (err) {
-      console.warn('[ProjectManager] Could not write projects file:', err);
+      AtomicStorage.atomicWriteJsonSync(this.projectsFile, array);
+    } catch (err: any) {
+      console.warn('[ProjectManager] Could not write projects file:', err.message);
     }
   }
 
   private ensureDefaultProject(): void {
     if (this.projects.size === 0) {
       const defaultWs = PathManager.getInstance().getDefaultWorkspaceDir();
+      const now = new Date().toISOString();
       const defProj: ProjectMetadata = {
         id: 'proj-default',
         name: 'Default Project',
         folders: [defaultWs],
         activeWorkspace: defaultWs,
+        projectPath: defaultWs,
         providerId: 'ollama',
         modelId: 'auto',
+        activeModel: 'auto',
         autonomyMode: 'AUTONOMOUS',
         gitWorktreeMode: 'LOCAL',
-        createdAt: new Date().toISOString(),
-        lastOpened: new Date().toISOString(),
+        createdAt: now,
+        lastOpened: now,
+        lastActivityDate: now,
         conversations: [],
+        recentFiles: [],
+        artifacts: [],
+        settings: {},
       };
       this.projects.set(defProj.id, defProj);
       this.activeProjectId = defProj.id;
@@ -111,6 +138,7 @@ export class ProjectManager {
     autonomyMode?: 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
     gitWorktreeMode?: 'LOCAL' | 'WORKTREE';
     description?: string;
+    settings?: Record<string, any>;
   }): ProjectMetadata {
     const id = `proj-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const resolvedFolders = options.folders.map(f => path.resolve(f));
@@ -120,18 +148,28 @@ export class ProjectManager {
       }
     }
 
+    const now = new Date().toISOString();
+    const primaryFolder = resolvedFolders[0] || PathManager.getInstance().getDefaultWorkspaceDir();
+    const effectiveModel = options.modelId || 'auto';
+
     const project: ProjectMetadata = {
       id,
       name: options.name,
       folders: resolvedFolders,
-      activeWorkspace: resolvedFolders[0] || PathManager.getInstance().getDefaultWorkspaceDir(),
+      activeWorkspace: primaryFolder,
+      projectPath: primaryFolder,
       providerId: options.providerId || 'ollama',
-      modelId: options.modelId || 'auto',
+      modelId: effectiveModel,
+      activeModel: effectiveModel,
       autonomyMode: options.autonomyMode || 'AUTONOMOUS',
       gitWorktreeMode: options.gitWorktreeMode || 'LOCAL',
-      createdAt: new Date().toISOString(),
-      lastOpened: new Date().toISOString(),
+      createdAt: now,
+      lastOpened: now,
+      lastActivityDate: now,
       conversations: [],
+      recentFiles: [],
+      artifacts: [],
+      settings: options.settings || {},
       description: options.description,
     };
 
@@ -157,7 +195,9 @@ export class ProjectManager {
     if (!proj) {
       throw new Error(`Project not found: ${id}`);
     }
-    proj.lastOpened = new Date().toISOString();
+    const now = new Date().toISOString();
+    proj.lastOpened = now;
+    proj.lastActivityDate = now;
     this.activeProjectId = id;
     this.save();
     return proj;
@@ -165,7 +205,7 @@ export class ProjectManager {
 
   public listProjects(): ProjectMetadata[] {
     return Array.from(this.projects.values()).sort(
-      (a, b) => new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime()
+      (a, b) => new Date(b.lastOpened || b.createdAt).getTime() - new Date(a.lastOpened || a.createdAt).getTime()
     );
   }
 
@@ -177,6 +217,7 @@ export class ProjectManager {
 
     if (!proj.folders.includes(resolved)) {
       proj.folders.push(resolved);
+      proj.lastActivityDate = new Date().toISOString();
       this.save();
     }
     return proj;
@@ -190,7 +231,9 @@ export class ProjectManager {
     proj.folders = proj.folders.filter(f => f !== resolved);
     if (proj.activeWorkspace === resolved) {
       proj.activeWorkspace = proj.folders[0] || PathManager.getInstance().getDefaultWorkspaceDir();
+      proj.projectPath = proj.activeWorkspace;
     }
+    proj.lastActivityDate = new Date().toISOString();
     this.save();
     return proj;
   }
@@ -199,10 +242,31 @@ export class ProjectManager {
     const proj = this.projects.get(id);
     if (!proj) throw new Error(`Project not found: ${id}`);
 
+    if (updates.modelId && !updates.activeModel) updates.activeModel = updates.modelId;
+    if (updates.activeModel && !updates.modelId) updates.modelId = updates.activeModel;
+
     Object.assign(proj, updates);
-    proj.lastOpened = new Date().toISOString();
+    const now = new Date().toISOString();
+    proj.lastOpened = now;
+    proj.lastActivityDate = now;
     this.save();
     return proj;
+  }
+
+  public addRecentFile(projectId: string, filePath: string): void {
+    const proj = this.projects.get(projectId);
+    if (!proj) return;
+    if (!proj.recentFiles) proj.recentFiles = [];
+    proj.recentFiles = [filePath, ...proj.recentFiles.filter(f => f !== filePath)].slice(0, 20);
+    proj.lastActivityDate = new Date().toISOString();
+    this.save();
+  }
+
+  public updateGitInfo(projectId: string, gitInfo: ProjectGitInfo): void {
+    const proj = this.projects.get(projectId);
+    if (!proj) return;
+    proj.gitInfo = { ...proj.gitInfo, ...gitInfo, lastChecked: new Date().toISOString() };
+    this.save();
   }
 
   public deleteProject(id: string): boolean {

@@ -9,13 +9,37 @@
 
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
 import { fileURLToPath } from 'url';
 import { chromium, Browser, Page } from 'playwright';
+import { app } from '../server/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../../');
-const BASE_URL = 'http://localhost:3456';
+
+let serverInstance: http.Server | null = null;
+let baseUrl = 'http://127.0.0.1:3456';
+
+async function ensureServerRunning(): Promise<string> {
+  try {
+    const res = await fetch('http://127.0.0.1:3456/api/health', { signal: AbortSignal.timeout(1000) });
+    if (res.ok) {
+      return 'http://127.0.0.1:3456';
+    }
+  } catch {}
+
+  const s = http.createServer(app);
+  await new Promise<void>((resolve) => {
+    s.listen(0, '127.0.0.1', () => {
+      serverInstance = s;
+      const addr = s.address() as any;
+      baseUrl = `http://127.0.0.1:${addr.port}`;
+      resolve();
+    });
+  });
+  return baseUrl;
+}
 
 export async function runRealUiAcceptanceTests(): Promise<{ passed: boolean; results: any[] }> {
   console.log('\n===============================================================');
@@ -26,11 +50,12 @@ export async function runRealUiAcceptanceTests(): Promise<{ passed: boolean; res
   let browser: Browser | null = null;
 
   try {
-    console.log(`1. Launching Playwright Chromium and opening MaxIDE UI at ${BASE_URL}...`);
+    const activeUrl = await ensureServerRunning();
+    console.log(`1. Launching Playwright Chromium and opening MaxIDE UI at ${activeUrl}...`);
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForTimeout(2000);
 
     // Verify UI Title
@@ -162,6 +187,10 @@ export async function runRealUiAcceptanceTests(): Promise<{ passed: boolean; res
     return { passed: false, results: [{ name: 'Real UI Acceptance', status: 'FAIL', error: err.message }] };
   } finally {
     if (browser) await browser.close();
+    if (serverInstance) {
+      serverInstance.close();
+      serverInstance.unref();
+    }
   }
 }
 

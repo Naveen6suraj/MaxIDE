@@ -165,12 +165,29 @@ export class ToolRegistry {
     return [...this.activityLogs];
   }
 
+  public isRegistered(name: string): boolean {
+    return Boolean(this.getTool(name));
+  }
+
   /**
    * Execute tool with schema validation, timeout protection, and activity tracking.
    */
   public async execute(name: string, args: any, context?: any): Promise<ToolExecutionResult> {
     const t0 = Date.now();
-    const tool = this.getTool(name);
+    let tool = this.getTool(name);
+
+    if (!tool && typeof args === 'object' && args !== null) {
+      if (args.content !== undefined || args.code !== undefined || (name.includes('.') && (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.html') || name.endsWith('.json') || name.endsWith('.py')))) {
+        tool = this.getTool('create_file');
+        args = {
+          path: args.path || args.file || (name.includes('.') ? name : `${name}.js`),
+          content: args.content ?? args.code ?? '',
+        };
+      } else if (args.command) {
+        tool = this.getTool('run_command');
+        args = { command: args.command };
+      }
+    }
 
     const log: ToolActivityLog = {
       id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,

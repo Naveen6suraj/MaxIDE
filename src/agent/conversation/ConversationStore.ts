@@ -1,15 +1,16 @@
-﻿/**
+/**
  * MaxIDE - Unlimited AI Provider Platform
  * Persistent Conversation Store & Resume Manager
  * 
  * Preserves agent conversations, task status, tool events,
- * artifacts, and execution state across IDE restarts.
+ * artifacts, and execution state across IDE restarts with AtomicStorage.
  */
 
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { PathManager } from '../../config/PathManager.js';
+import { AtomicStorage } from '../../storage/AtomicStorage.js';
 
 export interface ChatMessageRecord {
   id: string;
@@ -32,8 +33,16 @@ export type ConversationTaskStatus =
   | 'WAITING_APPROVAL'
   | 'COMPLETED'
   | 'FAILED'
+  | 'CANCELLED'
+  | 'INTERRUPTED'
   | 'PAUSED'
-  | 'INTERRUPTED';
+  | 'RECOVERABLE';
+
+export interface ConversationTimestamps {
+  created: string;
+  lastActivity: string;
+  completed?: string;
+}
 
 export interface ConversationRecord {
   id: string;
@@ -45,6 +54,55 @@ export interface ConversationRecord {
   providerId?: string;
   autonomyMode: 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
   messages: ChatMessageRecord[];
+  timestamps: ConversationTimestamps;
+  clarificationQuestions?: any[];
+  clarificationAnswers?: Record<string, string>;
+  pendingClarification?: {
+    originalPrompt: string;
+    questions: any[];
+    answers: Record<string, string>;
+    timestamp: string;
+  };
+  plan?: any;
+  toolCalls?: Array<{
+    id: string;
+    stepNumber: number;
+    name: string;
+    arguments: any;
+    timestamp: string;
+  }>;
+  toolResults?: Array<{
+    toolCallId?: string;
+    name: string;
+    result: any;
+    timestamp: string;
+  }>;
+  errors?: Array<{
+    stepNumber: number;
+    category: string;
+    message: string;
+    timestamp: string;
+  }>;
+  recoveryAttempts?: Array<{
+    stepNumber: number;
+    type: string;
+    details: string;
+    timestamp: string;
+  }>;
+  filesChanged?: string[];
+  commandsExecuted?: Array<{
+    command: string;
+    exitCode?: number;
+    timestamp: string;
+  }>;
+  browserVerificationResults?: Array<{
+    url: string;
+    title?: string;
+    status?: number;
+    timestamp: string;
+  }>;
+  checkpointIds?: string[];
+  lastCheckpointId?: string;
   toolEvents: Array<{
     timestamp: string;
     type: string;
@@ -57,15 +115,28 @@ export interface ConversationRecord {
     type: string;
   }>;
   checkpointId?: string;
+  finalSummary?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface DateGroupedConversations {
+  group: string;
+  conversations: ConversationRecord[];
+}
+
 export class ConversationStore {
   private baseDir: string;
   private indexFile: string;
-  private index: Map<string, { id: string; projectId: string; title: string; status: ConversationTaskStatus; updatedAt: string }> = new Map();
+  private index: Map<string, {
+    id: string;
+    projectId: string;
+    title: string;
+    status: ConversationTaskStatus;
+    updatedAt: string;
+    modelId?: string;
+  }> = new Map();
 
   constructor(customDir?: string) {
     this.baseDir = customDir || PathManager.getInstance().getConversationsDir();
@@ -78,17 +149,11 @@ export class ConversationStore {
   }
 
   private loadIndex(): void {
-    if (fs.existsSync(this.indexFile)) {
-      try {
-        const raw = fs.readFileSync(this.indexFile, 'utf-8');
-        const list = JSON.parse(raw);
-        if (Array.isArray(list)) {
-          for (const item of list) {
-            this.index.set(item.id, item);
-          }
-        }
-      } catch (err) {
-        console.warn('[ConversationStore] Failed to parse conversation index:', err);
+    const raw = AtomicStorage.safeReadJsonSync<any>(this.indexFile, []);
+    const list = Array.isArray(raw) ? raw : (raw && raw.id ? [raw] : []);
+    for (const item of list) {
+      if (item && item.id) {
+        this.index.set(item.id, item);
       }
     }
   }
@@ -96,16 +161,18 @@ export class ConversationStore {
   private saveIndex(): void {
     try {
       const list = Array.from(this.index.values());
-      fs.writeFileSync(this.indexFile, JSON.stringify(list, null, 2), 'utf-8');
-    } catch (err) {
-      console.warn('[ConversationStore] Failed to save conversation index:', err);
+      AtomicStorage.atomicWriteJsonSync(this.indexFile, list);
+    } catch (err: any) {
+      console.warn('[ConversationStore] Failed to save conversation index:', err.message);
     }
   }
 
   /**
    * Mark any tasks left in 'WORKING' state when MaxIDE was closed as 'INTERRUPTED'
+   * NEVER mark as FAILED!
    */
   public markInterruptedTasks(): void {
+    this.loadIndex();
     let changed = false;
     for (const [id, meta] of this.index) {
       if (meta.status === 'WORKING') {
@@ -124,16 +191,22 @@ export class ConversationStore {
   }
 
   public getInterruptedTasks(projectId?: string): ConversationRecord[] {
+    this.markInterruptedTasks();
     const results: ConversationRecord[] = [];
     for (const [id, meta] of this.index) {
-      if (meta.status === 'INTERRUPTED') {
+      if (meta.status === 'INTERRUPTED' || meta.status === 'RECOVERABLE' || meta.status === 'PAUSED') {
         if (!projectId || meta.projectId === projectId) {
           const conv = this.getConversation(id);
           if (conv) results.push(conv);
         }
       }
     }
-    return results;
+    return results.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  public getLatestRecoverableTask(projectId?: string): ConversationRecord | undefined {
+    const tasks = this.getInterruptedTasks(projectId);
+    return tasks[0];
   }
 
   public createConversation(options: {
@@ -148,6 +221,7 @@ export class ConversationStore {
       ? `${options.taskPrompt.slice(0, 57)}...`
       : options.taskPrompt;
 
+    const now = new Date().toISOString();
     const record: ConversationRecord = {
       id,
       projectId: options.projectId,
@@ -162,23 +236,51 @@ export class ConversationStore {
           id: `msg-${Date.now()}`,
           role: 'user',
           content: options.taskPrompt,
-          timestamp: new Date().toISOString(),
+          timestamp: now,
         }
       ],
+      timestamps: {
+        created: now,
+        lastActivity: now,
+      },
+      toolCalls: [],
+      toolResults: [],
+      errors: [],
+      recoveryAttempts: [],
+      filesChanged: [],
+      commandsExecuted: [],
+      browserVerificationResults: [],
+      checkpointIds: [],
       toolEvents: [],
       artifacts: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     this.saveConversation(record);
     return record;
   }
 
-  public saveConversation(record: ConversationRecord, updateIndexFile: boolean = true): void {
-    record.updatedAt = new Date().toISOString();
+  public saveConversation(record: ConversationRecord, updateIndexFile: boolean = true, preserveTimestamp: boolean = false): void {
+    const now = new Date().toISOString();
+    if (!preserveTimestamp) {
+      record.updatedAt = now;
+    }
+    if (!record.timestamps) {
+      record.timestamps = {
+        created: record.createdAt || record.updatedAt || now,
+        lastActivity: record.updatedAt || now,
+      };
+    } else if (!preserveTimestamp) {
+      record.timestamps.lastActivity = now;
+    }
+
+    if (record.taskStatus === 'COMPLETED' && !record.timestamps.completed) {
+      record.timestamps.completed = record.updatedAt || now;
+    }
+
     const filePath = path.join(this.baseDir, `${record.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf-8');
+    AtomicStorage.atomicWriteJsonSync(filePath, record);
 
     this.index.set(record.id, {
       id: record.id,
@@ -186,6 +288,7 @@ export class ConversationStore {
       title: record.title,
       status: record.taskStatus,
       updatedAt: record.updatedAt,
+      modelId: record.modelId,
     });
 
     if (updateIndexFile) {
@@ -195,13 +298,8 @@ export class ConversationStore {
 
   public getConversation(id: string): ConversationRecord | undefined {
     const filePath = path.join(this.baseDir, `${id}.json`);
-    if (!fs.existsSync(filePath)) return undefined;
-    try {
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(raw);
-    } catch {
-      return undefined;
-    }
+    const record = AtomicStorage.safeReadJsonSync<ConversationRecord | undefined>(filePath, undefined);
+    return record;
   }
 
   public listByProject(projectId: string): ConversationRecord[] {
@@ -226,6 +324,47 @@ export class ConversationStore {
       if (full) results.push(full);
     }
     return results;
+  }
+
+  /**
+   * Multi-Day Conversation Grouping (Today, Yesterday, 3 days ago, Last week, Older)
+   */
+  public getGroupedByDate(projectId?: string): DateGroupedConversations[] {
+    const convs = projectId ? this.listByProject(projectId) : this.listAll(100);
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    const groups: Record<string, ConversationRecord[]> = {
+      'Today': [],
+      'Yesterday': [],
+      '3 days ago': [],
+      'Last week': [],
+      'Older': [],
+    };
+
+    for (const c of convs) {
+      const time = new Date(c.updatedAt || c.createdAt).getTime();
+      const diff = now - time;
+      if (diff < oneDay) {
+        groups['Today'].push(c);
+      } else if (diff < 2 * oneDay) {
+        groups['Yesterday'].push(c);
+      } else if (diff < 4 * oneDay) {
+        groups['3 days ago'].push(c);
+      } else if (diff < 7 * oneDay) {
+        groups['Last week'].push(c);
+      } else {
+        groups['Older'].push(c);
+      }
+    }
+
+    const output: DateGroupedConversations[] = [];
+    for (const [group, items] of Object.entries(groups)) {
+      if (items.length > 0) {
+        output.push({ group, conversations: items });
+      }
+    }
+    return output;
   }
 
   public deleteConversation(id: string): boolean {

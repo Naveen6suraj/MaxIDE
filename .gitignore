@@ -7,6 +7,7 @@ yarn-error.log*
 # Build artifacts
 dist/
 build/
+release/
 
 # Environment and sensitive keys
 .env

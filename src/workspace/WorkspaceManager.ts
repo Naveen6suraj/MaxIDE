@@ -1,11 +1,13 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Real Filesystem Workspace & Project Manager with Git Integration
  */
 
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
+import { PathManager } from '../config/PathManager.js';
+import { ContentSanitizer } from '../agent/safety/ContentSanitizer.js';
 
 export interface FileNode {
   name: string;
@@ -43,11 +45,17 @@ export class WorkspaceManager {
       fs.mkdirSync(this.rootPath, { recursive: true });
     }
 
-    const sDir = storageDir || path.resolve(this.rootPath, '../data');
-    if (!fs.existsSync(sDir)) {
-      fs.mkdirSync(sDir, { recursive: true });
+    try {
+      this.recentProjectsFile = storageDir 
+        ? path.join(storageDir, 'recent_projects.json')
+        : PathManager.getInstance().getRecentProjectsFile();
+      const sDir = path.dirname(this.recentProjectsFile);
+      if (!fs.existsSync(sDir)) {
+        fs.mkdirSync(sDir, { recursive: true });
+      }
+    } catch {
+      this.recentProjectsFile = path.resolve(this.rootPath, '.maxide_recent.json');
     }
-    this.recentProjectsFile = path.join(sDir, 'recent_projects.json');
     this.loadRecentProjects();
     this.addRecentProject(this.rootPath, path.basename(this.rootPath));
   }
@@ -142,11 +150,24 @@ export class WorkspaceManager {
       decoded = decodeURIComponent(relPath);
     } catch {}
 
+    // Reject UNC and device paths
+    if (/^[\\\/]{2}/.test(decoded)) {
+      throw new Error(`Security Violation: UNC paths are not permitted: "${relPath}"`);
+    }
+    if (/^[\\\/]\?[\\\/]|^[\\\/]\.[\\\/]/.test(decoded)) {
+      throw new Error(`Security Violation: Device paths are not permitted: "${relPath}"`);
+    }
+
+    const normalizedRoot = path.normalize(this.rootPath);
+    const rootLower = normalizedRoot.toLowerCase();
+    const rootWithSep = rootLower.endsWith(path.sep) ? rootLower : rootLower + path.sep;
+
     // Check Windows drive letter injection (e.g. C:\Windows or C:)
     if (/^[a-zA-Z]:[/\\]/.test(decoded)) {
       const normalizedDrive = path.normalize(decoded);
-      const normalizedRoot = path.normalize(this.rootPath);
-      if (!normalizedDrive.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+      const driveLower = normalizedDrive.toLowerCase();
+      const isInside = driveLower === rootLower || driveLower.startsWith(rootWithSep);
+      if (!isInside) {
         throw new Error(`Security Violation: Absolute path "${relPath}" escapes workspace boundary.`);
       }
       return normalizedDrive;
@@ -154,11 +175,12 @@ export class WorkspaceManager {
 
     // Resolve relative to root
     const abs = path.resolve(this.rootPath, decoded);
-    const normalizedRoot = path.normalize(this.rootPath);
     const normalizedAbs = path.normalize(abs);
+    const absLower = normalizedAbs.toLowerCase();
 
+    const isInside = absLower === rootLower || absLower.startsWith(rootWithSep);
     const relativeToRoot = path.relative(normalizedRoot, normalizedAbs);
-    if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+    if (!isInside || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
       throw new Error(`Security Violation: Path "${relPath}" attempts to escape workspace root.`);
     }
 
@@ -175,7 +197,15 @@ export class WorkspaceManager {
     const abs = this.resolveSafePath(relPath);
     const dir = path.dirname(abs);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(abs, content, 'utf8');
+    let safeContent = content;
+    if (safeContent !== undefined && safeContent !== null) {
+      const sanitization = ContentSanitizer.sanitize(relPath, safeContent);
+      if (!sanitization.valid) {
+        throw new Error(sanitization.error);
+      }
+      safeContent = sanitization.sanitized;
+    }
+    fs.writeFileSync(abs, String(safeContent ?? ''), 'utf8');
   }
 
   public createFolder(relPath: string): void {

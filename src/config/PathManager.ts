@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MaxIDE - Unlimited AI Provider Platform
  * Path & Storage Manager
  * 
@@ -61,10 +61,12 @@ export class PathManager {
     const dirs = [
       this.userDataDir,
       this.agentDataDir,
+      this.getRuntimeDir(),
       this.getConversationsDir(),
       this.getCheckpointsDir(),
       this.getLogsDir(),
       this.getArtifactsDir(),
+      this.getDefaultWorkspaceDir(),
     ];
 
     for (const dir of dirs) {
@@ -76,6 +78,18 @@ export class PathManager {
         }
       }
     }
+  }
+
+  public getRuntimeDir(): string {
+    return path.join(this.agentDataDir, 'runtime');
+  }
+
+  public getPortFile(): string {
+    return path.join(this.getRuntimeDir(), 'port.json');
+  }
+
+  public getRecentProjectsFile(): string {
+    return path.join(this.userDataDir, 'recent_projects.json');
   }
 
   public getProjectsFile(): string {
@@ -111,12 +125,17 @@ export class PathManager {
   }
 
   /**
-   * Default project workspace for new installations or sandbox testing
+   * Default project workspace for user projects - isolated from application directory
    */
   public getDefaultWorkspaceDir(): string {
-    const defaultWs = path.join(this.appDir, 'workspace');
+    if (process.env.MAXIDE_WORKSPACE_DIR) {
+      return path.resolve(process.env.MAXIDE_WORKSPACE_DIR);
+    }
+    const defaultWs = path.join(this.userDataDir, 'workspace');
     if (!fs.existsSync(defaultWs)) {
-      fs.mkdirSync(defaultWs, { recursive: true });
+      try {
+        fs.mkdirSync(defaultWs, { recursive: true });
+      } catch {}
     }
     return defaultWs;
   }

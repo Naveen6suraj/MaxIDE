@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * FINAL HARDENING & REAL-WORLD AUDIT TEST HARNESS
  * 
  * Conducts real-world auditing across all 20 technical areas:
@@ -58,7 +58,7 @@ export interface AuditRecord {
 
 export async function runRealWorldAudit(): Promise<{ records: AuditRecord[]; summary: string }> {
   console.log('\n========================================================================');
-  console.log('       ORBIT IDE: RIGOROUS REAL-WORLD AUDIT & SECURITY REPORT           ');
+  console.log('       MAXIDE: RIGOROUS REAL-WORLD AUDIT & SECURITY REPORT              ');
   console.log('========================================================================\n');
 
   const records: AuditRecord[] = [];
@@ -595,7 +595,7 @@ export async function runRealWorldAudit(): Promise<{ records: AuditRecord[]; sum
     // Start real local web app
     const srv = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<!DOCTYPE html><html><head><title>Orbit Audit Page</title></head><body><h1>Audited</h1></body></html>');
+      res.end('<!DOCTYPE html><html><head><title>MaxIDE Audit Page</title></head><body><h1>Audited</h1></body></html>');
     });
     await new Promise<void>(resolve => srv.listen(3921, () => resolve()));
 
@@ -607,13 +607,17 @@ export async function runRealWorldAudit(): Promise<{ records: AuditRecord[]; sum
     const nonVisionModel = modReg.getModel('audit-model'); // vision = false
     const shotRes = await agent.browserAgent.captureScreenshot(nonVisionModel);
 
-    if (navRes.success && navRes.title === 'Orbit Audit Page' && shotRes.error?.includes('Vision unavailable')) {
+    // Also test real vision screenshot
+    const realShot = await agent.browserAgent.captureScreenshot(undefined, true);
+    await agent.browserAgent.close();
+
+    if (navRes.success && navRes.title === 'MaxIDE Audit Page' && shotRes.error?.includes('Vision unavailable')) {
+      const screenshotOk = realShot.success && Boolean(realShot.screenshotBase64);
       record(
         13,
         'Browser Agent & Vision Integrity Audit',
-        'PARTIAL',
-        'Dev server HTTP navigation and DOM capture verified (200 OK, Title: "Orbit Audit Page"). Non-vision model correctly rejected visual screenshot analysis.',
-        'Playwright headless Chromium binary is not bundled on this host; HTTP-based DOM inspection is active.'
+        screenshotOk ? 'PASS' : 'PARTIAL',
+        `Real Chromium navigation & DOM capture verified (200 OK, Title: "MaxIDE Audit Page"). Non-vision model correctly rejected; real screenshot ${screenshotOk ? 'captured (' + realShot.screenshotBase64?.length + ' bytes)' : 'pending'}.`
       );
     } else {
       record(13, 'Browser Agent Audit', 'FAIL', 'Browser verification failed');

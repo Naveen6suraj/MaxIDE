@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Reversible AI File Editing & Patch Manager
  * 
  * Generates unified diffs for AI file modifications.
@@ -50,6 +50,36 @@ export class PatchManager {
 
   public setOnPatchStaged(cb: (patch: PatchSet) => void): void {
     this.onPatchStagedCallback = cb;
+  }
+
+  private resolveSafe(relPath: string): string {
+    if (!relPath || typeof relPath !== 'string') {
+      throw new Error('Invalid path for patch: path must be a non-empty string.');
+    }
+    const clean = relPath.replace(/\0/g, '');
+    if (/^[\\\/]{2}|^[\\\/]\?[\\\/]|^[\\\/]\.[\\\/]/.test(clean)) {
+      throw new Error(`Security Violation: UNC or device paths cannot be patched: "${relPath}"`);
+    }
+    const normalizedRoot = path.normalize(this.workspaceRoot);
+    const rootLower = normalizedRoot.toLowerCase();
+    const rootWithSep = rootLower.endsWith(path.sep) ? rootLower : rootLower + path.sep;
+
+    if (/^[a-zA-Z]:[/\\]/.test(clean)) {
+      const norm = path.normalize(clean);
+      const lower = norm.toLowerCase();
+      if (lower !== rootLower && !lower.startsWith(rootWithSep)) {
+        throw new Error(`Security Violation: Patch path "${relPath}" escapes workspace boundary.`);
+      }
+      return norm;
+    }
+
+    const abs = path.resolve(this.workspaceRoot, clean);
+    const normAbs = path.normalize(abs);
+    const lowerAbs = normAbs.toLowerCase();
+    if (lowerAbs !== rootLower && !lowerAbs.startsWith(rootWithSep)) {
+      throw new Error(`Security Violation: Patch path "${relPath}" escapes workspace boundary.`);
+    }
+    return normAbs;
   }
 
   /**
@@ -132,7 +162,7 @@ export class PatchManager {
     const filePatches: FilePatch[] = [];
 
     for (const change of fileChanges) {
-      const fullPath = path.resolve(this.workspaceRoot, change.path);
+      const fullPath = this.resolveSafe(change.path);
       let originalContent = '';
       if (fs.existsSync(fullPath)) {
         originalContent = fs.readFileSync(fullPath, 'utf8');
@@ -177,7 +207,7 @@ export class PatchManager {
 
     for (const file of patch.files) {
       if (file.status === 'rejected') continue;
-      const fullPath = path.resolve(this.workspaceRoot, file.path);
+      const fullPath = this.resolveSafe(file.path);
       const dir = path.dirname(fullPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });

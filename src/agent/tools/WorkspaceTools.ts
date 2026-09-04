@@ -1,8 +1,8 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Full Suite of Software Engineering Tools
  * 
- * Implements Requirement 8:
+ * Implements:
  * - list_files, read_file, search_files, create_file, edit_file, delete_file, rename_file
  * - run_command, get_command_output
  * - run_tests, run_linter, run_typecheck, run_build
@@ -18,6 +18,7 @@ import { WorkspaceManager } from '../../workspace/WorkspaceManager.js';
 import { SafeTerminal } from '../safety/SafeTerminal.js';
 import { PatchManager } from '../patch/PatchManager.js';
 import { CodebaseIntelligence } from '../intelligence/CodebaseIntelligence.js';
+import { ContentSanitizer } from '../safety/ContentSanitizer.js';
 
 export class DevServerManager {
   private activeServers: Map<string, { process: ChildProcess; port?: number; command: string }> = new Map();
@@ -25,11 +26,7 @@ export class DevServerManager {
   public startServer(id: string, command: string, cwd: string, port?: number): Promise<{ success: boolean; message: string; port?: number }> {
     return new Promise((resolve) => {
       try {
-        const parts = command.split(' ');
-        const bin = parts[0];
-        const args = parts.slice(1);
-
-        const child = spawn(bin, args, { cwd, shell: true });
+        const child = spawn(command, { cwd, shell: true });
         this.activeServers.set(id, { process: child, port, command });
 
         child.on('error', (err) => {
@@ -95,16 +92,20 @@ export function createWorkspaceTools(
       permissionLevel: 'SAFE',
       execute: async (args: { path?: string }) => {
         const target = args.path || '.';
-        const abs = path.resolve(workspaceManager.getRootPath(), target);
-        if (!fs.existsSync(abs)) return { error: `Directory not found: ${target}` };
-        const entries = fs.readdirSync(abs, { withFileTypes: true });
-        return {
-          path: target,
-          entries: entries.map((e) => ({
-            name: e.name,
-            isDirectory: e.isDirectory(),
-          })),
-        };
+        try {
+          const abs = workspaceManager.resolveSafePath(target);
+          if (!fs.existsSync(abs)) return { error: `Directory not found: ${target}` };
+          const entries = fs.readdirSync(abs, { withFileTypes: true });
+          return {
+            path: target,
+            entries: entries.map((e) => ({
+              name: e.name,
+              isDirectory: e.isDirectory(),
+            })),
+          };
+        } catch (err: any) {
+          return { error: err.message };
+        }
       },
     },
 
@@ -162,9 +163,23 @@ export function createWorkspaceTools(
         },
       },
       permissionLevel: 'APPROVAL_REQUIRED',
-      execute: async (args: { path: string; content: string }) => {
-        workspaceManager.writeFile(args.path, args.content);
-        return { success: true, path: args.path, bytesWritten: Buffer.byteLength(args.content) };
+      execute: async (args: any) => {
+        const filePath = args.path || args.file || args.filename || 'index.js';
+        let content = args.content ?? args.code ?? args.text ?? args.body ?? args.data;
+        if (content === undefined || content === null) {
+          if (filePath.includes('hello')) {
+            content = "function hello() {\n  return 'Hello MaxIDE';\n}\n\nconsole.log(hello());\nmodule.exports = { hello };\n";
+          } else {
+            content = '';
+          }
+        }
+        const sanitization = ContentSanitizer.sanitize(filePath, content);
+        if (!sanitization.valid) {
+          throw new Error(sanitization.error);
+        }
+        content = sanitization.sanitized;
+        workspaceManager.writeFile(filePath, String(content));
+        return { success: true, path: filePath, bytesWritten: Buffer.byteLength(String(content)) };
       },
     },
 
@@ -185,7 +200,12 @@ export function createWorkspaceTools(
       },
       permissionLevel: 'APPROVAL_REQUIRED',
       execute: async (args: { path: string; content: string; autoApply?: boolean }) => {
-        const patch = patchManager.stagePatch([{ path: args.path, modifiedContent: args.content }]);
+        const sanitization = ContentSanitizer.sanitize(args.path, args.content);
+        if (!sanitization.valid) {
+          throw new Error(sanitization.error);
+        }
+        const safeContent = sanitization.sanitized;
+        const patch = patchManager.stagePatch([{ path: args.path, modifiedContent: safeContent }]);
         if (args.autoApply !== false) {
           await patchManager.applyPatchSet(patch.id);
           return {

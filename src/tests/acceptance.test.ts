@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * 16-Step Acceptance Test Suite
  * 
  * Verifies all 16 acceptance requirements specified in the prompt:
@@ -46,7 +46,7 @@ interface TestResult {
 
 export async function runAcceptanceTests(): Promise<{ passed: boolean; results: TestResult[] }> {
   console.log('\n===============================================================');
-  console.log('  ORBIT IDE: UNLIMITED AI PROVIDER & MODEL ACCEPTANCE SUITE    ');
+  console.log('  MAXIDE: UNLIMITED AI PROVIDER & MODEL ACCEPTANCE SUITE       ');
   console.log('===============================================================\n');
 
   const results: TestResult[] = [];

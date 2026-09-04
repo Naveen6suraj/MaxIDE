@@ -1,10 +1,10 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - AI-Native Software Engineering Studio
  * Final Agentic Execution Integration Test Suite
  * 
  * Verifies real end-to-end user-level execution:
  * 1. Conversational prompt ("Explain React hooks.") -> Direct answer, zero disclaimers
- * 2. Execution task ("Create a small Node application with a function that returns 'Hello Orbit', run it, and verify the result.")
+ * 2. Execution task ("Create a small Node application with a function that returns 'Hello MaxIDE', run it, and verify the result.")
  *    -> Real file created on disk, real node command run, output verified
  * 3. Web app task with browser verification
  * 4. Multi-format upload pipeline (zip extraction into workspace, documents, pdfs)
@@ -12,14 +12,38 @@
 
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
 import { chromium, Browser, Page } from 'playwright';
 import { execSync } from 'child_process';
+import { app } from '../server/index.js';
 
 const WORKSPACE = path.resolve(process.cwd(), 'test-agentic-ws');
+let serverInstance: http.Server | null = null;
+let baseUrl = 'http://127.0.0.1:3456';
+
+async function ensureServerRunning(): Promise<string> {
+  try {
+    const res = await fetch('http://127.0.0.1:3456/api/health', { signal: AbortSignal.timeout(1000) });
+    if (res.ok) {
+      return 'http://127.0.0.1:3456';
+    }
+  } catch {}
+
+  const s = http.createServer(app);
+  await new Promise<void>((resolve) => {
+    s.listen(0, '127.0.0.1', () => {
+      serverInstance = s;
+      const addr = s.address() as any;
+      baseUrl = `http://127.0.0.1:${addr.port}`;
+      resolve();
+    });
+  });
+  return baseUrl;
+}
 
 async function runFinalAgenticSuite() {
   console.log('\n===============================================================');
-  console.log('  ORBIT IDE: FINAL AGENTIC EXECUTION INTEGRATION SUITE         ');
+  console.log('  MAXIDE: FINAL AGENTIC EXECUTION INTEGRATION SUITE            ');
   console.log('===============================================================\n');
 
   if (fs.existsSync(WORKSPACE)) {
@@ -27,22 +51,29 @@ async function runFinalAgenticSuite() {
   }
   fs.mkdirSync(WORKSPACE, { recursive: true });
 
-  const browser: Browser = await chromium.launch({ headless: true });
-  const page: Page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const activeUrl = await ensureServerRunning();
+  console.log(`Connected to MaxIDE test backend at: ${activeUrl}`);
 
-  console.log('1. Navigating to Orbit IDE Studio at http://localhost:3456...');
-  await page.goto('http://localhost:3456', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
+  let browser: Browser | null = null;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page: Page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    page.on('console', msg => console.log('BROWSER CONSOLE:', msg.text()));
+    page.on('pageerror', err => console.log('BROWSER PAGE ERROR:', err.message));
 
-  // Switch workspace to test-agentic-ws
-  await page.evaluate((wsPath) => {
-    return fetch('/api/workspace/project', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ directory: wsPath }),
-    });
-  }, WORKSPACE);
-  await page.waitForTimeout(1000);
+    console.log(`1. Navigating to MaxIDE Studio at ${activeUrl}...`);
+    await page.goto(activeUrl, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+
+    // Switch workspace to test-agentic-ws
+    await page.evaluate((wsPath) => {
+      return fetch('/api/workspace/project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: wsPath }),
+      });
+    }, WORKSPACE);
+    await page.waitForTimeout(1000);
 
   // ---------------------------------------------------------------------------
   // TEST 1: Conversational Request (Explain React hooks)
@@ -50,9 +81,17 @@ async function runFinalAgenticSuite() {
   console.log('Test 1: Conversational request ("Explain React hooks.")...');
   await page.fill('#agent-prompt-input', 'Explain React hooks.');
   await page.click('#btn-agent-send');
-  await page.waitForTimeout(6000);
+  await page.waitForFunction(() => {
+    const doc = (globalThis as any).document;
+    const el = doc ? doc.querySelector('#agent-chat-messages') : null;
+    if (!el) return false;
+    const text = el.textContent || '';
+    return text.toLowerCase().includes('hook') || text.toLowerCase().includes('state');
+  }, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(2000);
 
   const chatMessages1 = await page.innerText('#agent-chat-messages');
+  console.log('DEBUG chatMessages1:', JSON.stringify(chatMessages1));
   const hasDisclaimers = /cannot (physically )?create|cannot access your (local )?machine|please create the files manually/i.test(chatMessages1);
   if (hasDisclaimers) {
     throw new Error('Test 1 FAILED: Found generic AI disclaimer in conversational output.');
@@ -151,14 +190,14 @@ async function runFinalAgenticSuite() {
   // TEST 4: Browser Verification Tool Execution
   // ---------------------------------------------------------------------------
   console.log('Test 4: BrowserTools verification (Playwright Chromium DOM navigation)...');
-  const browserNavRes: any = await page.evaluate(async () => {
+  const browserNavRes: any = await page.evaluate(async (targetUrl) => {
     const res = await fetch('/api/browser/navigate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: 'http://localhost:3456' }),
+      body: JSON.stringify({ url: targetUrl }),
     });
     return res.json();
-  });
+  }, activeUrl);
   if (!browserNavRes.success || browserNavRes.status !== 200) {
     throw new Error(`Test 4 FAILED: Browser navigation failed: ${JSON.stringify(browserNavRes)}`);
   }
@@ -172,14 +211,21 @@ async function runFinalAgenticSuite() {
 
   await page.screenshot({ path: 'final_agentic_execution_verified.png' });
   console.log('Screenshot saved to final_agentic_execution_verified.png');
-  await browser.close();
 
   console.log('===============================================================');
   console.log('  RESULT: ALL 4 FINAL AGENTIC EXECUTION TESTS PASSED (100%)    ');
   console.log('===============================================================\n');
+  } finally {
+    if (browser) await browser.close();
+    if (serverInstance) {
+      serverInstance.close();
+      serverInstance.unref();
+    }
+  }
 }
 
 runFinalAgenticSuite().catch((err) => {
   console.error('\n❌ FATAL TEST ERROR:', err);
+  if (serverInstance) serverInstance.close();
   process.exit(1);
 });
