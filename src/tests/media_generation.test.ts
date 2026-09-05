@@ -107,17 +107,48 @@ async function runMediaBattery() {
     failed++;
   }
 
-  // Test 5: Full AgentEngine MEDIA_GEN workflow execution
+  // Test 5: Full AgentEngine MEDIA_GEN workflow execution (Creation completed cleanly)
+  let testEngine: any;
   try {
     process.stdout.write('[Test 5] AgentEngine.processMessage for "generate a sample 4k video of 5 seconds of super car"... ');
     const providerRegistry = new ProviderRegistry();
     const modelRegistry = new ModelRegistry(providerRegistry);
     const gateway = new AIGateway(providerRegistry, modelRegistry, 'cloud');
-    const engine = new AgentEngine(gateway, testWorkspace);
+    testEngine = new AgentEngine(gateway, testWorkspace);
 
-    const outcome = await engine.processMessage('generate a sample 4k video of 5 seconds of super car');
-    if (outcome.intent === 'MEDIA_GEN' && outcome.openFile && (outcome.finalAnswer?.includes('<video') || outcome.answer?.includes('<video'))) {
-      console.log('PASSED (Generated video asset, returned player markdown & suggested actions)');
+    const outcome = await testEngine.processMessage('generate a sample 4k video of 5 seconds of super car');
+    if (outcome.intent === 'MEDIA_GEN' && outcome.mediaInfo?.filePath && outcome.finalAnswer?.includes('Video Generation Completed')) {
+      console.log('PASSED (Video created cleanly, confirmed completion without unsolicited popups)');
+      passed++;
+    } else {
+      throw new Error('Unexpected outcome: ' + JSON.stringify(outcome));
+    }
+  } catch (err: any) {
+    console.log('FAILED: ' + err.message);
+    failed++;
+  }
+
+  // Test 6: Conversational Playback Request ("watch the video")
+  try {
+    process.stdout.write('[Test 6] Conversational Request: "watch the video"... ');
+    const outcome = await testEngine.processMessage('watch the video');
+    if (outcome.intent === 'MEDIA_GEN' && outcome.openFile && outcome.finalAnswer?.includes('<video')) {
+      console.log('PASSED (Delivered video player & opened media tab on user demand)');
+      passed++;
+    } else {
+      throw new Error('Unexpected outcome: ' + JSON.stringify(outcome));
+    }
+  } catch (err: any) {
+    console.log('FAILED: ' + err.message);
+    failed++;
+  }
+
+  // Test 7: Conversational Download Request ("download the video")
+  try {
+    process.stdout.write('[Test 7] Conversational Request: "download the video"... ');
+    const outcome = await testEngine.processMessage('download the video');
+    if (outcome.intent === 'MEDIA_GEN' && outcome.finalAnswer?.includes('Download')) {
+      console.log('PASSED (Delivered direct download link on user demand)');
       passed++;
     } else {
       throw new Error('Unexpected outcome: ' + JSON.stringify(outcome));

@@ -1771,6 +1771,94 @@ server.listen(PORT, '127.0.0.1', () => {
       }
     }
 
+    // 5.4. MEDIA ACTION INTENT (Watch or Download generated media)
+    const isWatchVideo = /\b(watch|play|show|see|view|open)\b.*\b(video|clip|movie|animation|footage)\b/i.test(lower) || /^(watch|play|show|view)\s+(it|the\s+video|video)\b/i.test(lower) || lower === 'watch' || lower === 'play' || lower === 'watch video' || lower === 'play video';
+    const isDownloadVideo = /\b(download|save|export|get)\b.*\b(video|clip|movie|animation|file)\b/i.test(lower) || /^(download|save)\s+(it|the\s+video|video)\b/i.test(lower) || lower === 'download' || lower === 'download video';
+    const isWatchImage = /\b(watch|show|see|view|open)\b.*\b(image|picture|photo|wallpaper|artwork)\b/i.test(lower) || /^(show|view|open)\s+(the\s+image|image)\b/i.test(lower);
+    const isDownloadImage = /\b(download|save|export|get)\b.*\b(image|picture|photo|wallpaper)\b/i.test(lower) || /^(download|save)\s+(the\s+image|image)\b/i.test(lower);
+
+    if (isWatchVideo) {
+      const latestVideo = this.getLatestMediaFile('video');
+      if (latestVideo) {
+        const videoUrl = `/workspace-preview/${latestVideo}`;
+        const answerText = `### 🎬 Video Player: \`${path.basename(latestVideo)}\`\n\n` +
+          `<video controls autoplay loop class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 bg-black" src="${videoUrl}"></video>\n\n` +
+          `Now playing **\`${latestVideo}\`**. Let me know if you would also like to download it.`;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+          openFile: latestVideo,
+          openPreview: videoUrl,
+        };
+      } else {
+        const answerText = `No video asset found in \`assets/\`. Tell me what you'd like to create (e.g. *"generate a sample 4k video of 5 seconds of super car"*), and I will create it immediately.`;
+        return { actionType: 'conversation', answer: answerText, finalAnswer: answerText, intent: 'CHAT' };
+      }
+    }
+
+    if (isDownloadVideo) {
+      const latestVideo = this.getLatestMediaFile('video');
+      if (latestVideo) {
+        const filename = path.basename(latestVideo);
+        const downloadUrl = `/api/workspace/file?path=${encodeURIComponent(latestVideo)}&raw=true`;
+        const answerText = `### ⬇️ Download Video\n\n` +
+          `Your video file **\`${filename}\`** is ready:\n\n` +
+          `- **[Click Here to Download ${filename}](${downloadUrl})**\n\n` +
+          `Local file location: \`${latestVideo}\``;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+        };
+      } else {
+        const answerText = `No video asset found in \`assets/\`. You can ask me to generate one anytime.`;
+        return { actionType: 'conversation', answer: answerText, finalAnswer: answerText, intent: 'CHAT' };
+      }
+    }
+
+    if (isWatchImage) {
+      const latestImg = this.getLatestMediaFile('image');
+      if (latestImg) {
+        const imgUrl = `/workspace-preview/${latestImg}`;
+        const answerText = `### 🖼️ Image Viewer: \`${path.basename(latestImg)}\`\n\n` +
+          `<img src="${imgUrl}" alt="${path.basename(latestImg)}" class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 object-contain bg-[#0a0e1a]" />\n\n` +
+          `Viewing **\`${latestImg}\`**. Let me know if you would also like to download it.`;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+          openFile: latestImg,
+          openPreview: imgUrl,
+        };
+      }
+    }
+
+    if (isDownloadImage) {
+      const latestImg = this.getLatestMediaFile('image');
+      if (latestImg) {
+        const filename = path.basename(latestImg);
+        const downloadUrl = `/api/workspace/file?path=${encodeURIComponent(latestImg)}&raw=true`;
+        const answerText = `### ⬇️ Download Image\n\n` +
+          `Here is your image ready for download:\n\n` +
+          `- **[Click Here to Download ${filename}](${downloadUrl})**\n\n` +
+          `Local file location: \`${latestImg}\``;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+        };
+      }
+    }
+
     // 5.5. MEDIA GENERATION INTENT (Videos & Images)
     // Examples: "generate a sample 4k video of 5 seconds of super car", "create an image of cyberpunk skyline"
     if (classification.intent === 'MEDIA_GEN') {
@@ -1798,21 +1886,16 @@ server.listen(PORT, '127.0.0.1', () => {
         const relFile = path.relative(root, videoResult.filePath).replace(/\\/g, '/');
         const mediaUrl = videoResult.relativeUrl;
 
-        const answerText = `### 🎬 Generated AI Video (${dur}s • ${res.toUpperCase()})\n\n` +
-          `Successfully synthesized video for **"${mediaPrompt}"**.\n\n` +
-          `- **File:** [${relFile}](open:${relFile})\n` +
-          `- **Duration:** ${dur} seconds\n` +
-          `- **Resolution:** ${res.toUpperCase()} @ 60 FPS\n\n` +
-          `<video controls autoplay loop class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 bg-black" src="${mediaUrl}"></video>\n\n` +
-          `*The video file is saved to your project assets and ready to play, embed in websites, or download.*`;
+        const answerText = `### 🎬 Video Generation Completed\n\n` +
+          `Successfully created **"${mediaPrompt}"** (${dur}s • ${res.toUpperCase()} @ 60 FPS).\n\n` +
+          `Asset saved to \`${relFile}\`.\n\n` +
+          `The video is ready. Whenever you want to watch it or download it, just ask me.`;
 
         return {
           actionType: 'agent_task',
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
-          openFile: relFile,
-          openPreview: mediaUrl,
           mediaInfo: {
             type: 'video',
             url: mediaUrl,
@@ -1821,11 +1904,6 @@ server.listen(PORT, '127.0.0.1', () => {
             duration: dur,
             resolution: res,
           },
-          suggestedActions: [
-            { label: '🌐 Open Video in New Tab', prompt: `open ${mediaUrl} in new tab` },
-            { label: '🚀 Build a Showcase Website for this Video', prompt: `Build a modern landing page featuring the video ${relFile} in the hero banner` },
-            { label: '🎨 Generate Cover Image', prompt: `Generate a 4K cover image for ${mediaPrompt}` }
-          ],
         };
       } else {
         // Image generation
@@ -1839,31 +1917,22 @@ server.listen(PORT, '127.0.0.1', () => {
         const relFile = path.relative(root, imgResult.filePath).replace(/\\/g, '/');
         const mediaUrl = imgResult.relativeUrl;
 
-        const answerText = `### 🖼️ Generated AI Image (${imgResult.width}x${imgResult.height})\n\n` +
-          `Successfully generated asset for **"${mediaPrompt}"** via **${imgResult.provider.toUpperCase()}**.\n\n` +
-          `- **File:** [${relFile}](open:${relFile})\n` +
-          `- **Dimensions:** ${imgResult.width} x ${imgResult.height}px\n\n` +
-          `<img src="${mediaUrl}" alt="${mediaPrompt}" class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 object-contain bg-[#0a0e1a]" />\n\n` +
-          `*The image is saved to your project assets and ready to embed in code or download.*`;
+        const answerText = `### 🖼️ Image Generation Completed\n\n` +
+          `Successfully created **"${mediaPrompt}"** (${imgResult.width}x${imgResult.height}px).\n\n` +
+          `Asset saved to \`${relFile}\`.\n\n` +
+          `The image is ready. Whenever you want to view it or download it, just ask me.`;
 
         return {
           actionType: 'agent_task',
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
-          openFile: relFile,
-          openPreview: mediaUrl,
           mediaInfo: {
             type: 'image',
             url: mediaUrl,
             filePath: relFile,
             prompt: mediaPrompt,
           },
-          suggestedActions: [
-            { label: '🌐 Open Image in New Tab', prompt: `open ${mediaUrl} in new tab` },
-            { label: '🚀 Build a Gallery Website', prompt: `Build a modern website showcase featuring ${relFile}` },
-            { label: '🎬 Generate Animated Video of this Image', prompt: `generate a 5 second video of ${mediaPrompt}` }
-          ],
         };
       }
     }
@@ -1997,5 +2066,28 @@ server.listen(PORT, '127.0.0.1', () => {
       openPreview: agentResult.openPreview,
       autoModel: autoModelMeta || agentResult.autoModel,
     };
+  }
+
+  public getLatestMediaFile(type: 'video' | 'image'): string | null {
+    const root = this.workspaceManager.getRootPath();
+    const assetsDir = path.join(root, 'assets');
+    if (!fs.existsSync(assetsDir)) return null;
+
+    const files = fs.readdirSync(assetsDir);
+    const exts = type === 'video' ? ['.webm', '.mp4', '.mov'] : ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
+    const matches = files.filter(f => exts.some(e => f.toLowerCase().endsWith(e)));
+    if (matches.length === 0) return null;
+
+    matches.sort((a, b) => {
+      try {
+        const statA = fs.statSync(path.join(assetsDir, a));
+        const statB = fs.statSync(path.join(assetsDir, b));
+        return statB.mtimeMs - statA.mtimeMs;
+      } catch {
+        return 0;
+      }
+    });
+
+    return path.join('assets', matches[0]).replace(/\\/g, '/');
   }
 }
