@@ -437,12 +437,13 @@ export function createApiRouter(
 
     const sendEvent = (eventData: any) => {
       if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify(eventData)}\n\n`);
+        const evType = eventData.type || 'message';
+        res.write(`event: ${evType}\ndata: ${JSON.stringify(eventData)}\n\n`);
       }
     };
 
     const unsubscribeTimeline = agentEngine.addTimelineListener((act) => {
-      sendEvent({ type: 'activity', activity: act });
+      sendEvent({ type: 'timeline', event: act, activity: act });
     });
 
     const unsubscribePlan = agentEngine.addPlanListener((plan) => {
@@ -463,18 +464,27 @@ export function createApiRouter(
         sessionId: conversationId,
       });
 
+      const outcomeData = {
+        success: outcome.actionType === 'agent_task' ? (outcome.agentResult?.success ?? true) : true,
+        actionType: outcome.actionType,
+        intent: outcome.intent,
+        answer: outcome.answer,
+        finalAnswer: outcome.answer || outcome.finalAnswer,
+        openFile: outcome.openFile,
+        openPreview: outcome.openPreview,
+        openTerminal: outcome.openTerminal,
+        previewInfo: (outcome as any).previewInfo,
+        questions: outcome.questions,
+        clarification: outcome.clarification,
+        conversationId,
+        stepsCompleted: outcome.agentResult?.totalSteps || 1,
+        autoModel: outcome.autoModel,
+      };
+
       sendEvent({
         type: 'complete',
-        result: {
-          success: outcome.actionType === 'agent_task' ? (outcome.agentResult?.success ?? true) : true,
-          actionType: outcome.actionType,
-          answer: outcome.answer,
-          finalAnswer: outcome.answer,
-          openFile: outcome.openFile,
-          openPreview: outcome.openPreview,
-          stepsCompleted: outcome.agentResult?.totalSteps || 1,
-          autoModel: outcome.autoModel,
-        },
+        outcome: outcomeData,
+        result: outcomeData,
       });
       res.end();
     } catch (err: any) {

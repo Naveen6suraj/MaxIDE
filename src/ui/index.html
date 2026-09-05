@@ -2116,29 +2116,30 @@
                 const rawData = trimmed.slice(5).trim();
                 try {
                   const data = JSON.parse(rawData);
-                  if (currentEvent === 'token') {
+                  const evType = (currentEvent && currentEvent !== 'message') ? currentEvent : (data.type || 'message');
+                  if (evType === 'token') {
                     accumulatedText += (data.token || '');
                     if (turnBody) turnBody.innerHTML = formatMarkdownText(accumulatedText);
                     feed.scrollTop = feed.scrollHeight;
-                  } else if (currentEvent === 'timeline') {
+                  } else if (evType === 'timeline' || evType === 'activity') {
                     opCount++;
                     if (actGroup) actGroup.classList.remove('hidden');
                     if (actCount) actCount.textContent = String(opCount);
                     if (actItems) {
-                      const msg = data.event?.message || data.event?.action || 'Operation';
+                      const msg = data.event?.message || data.event?.action || data.activity?.action || data.activity?.message || 'Operation';
                       actItems.innerHTML += `<div class="p-1 rounded bg-ide-surface/60 flex items-center gap-1.5"><span class="text-cyan-400">→</span><span>${escapeHtml(msg)}</span></div>`;
                     }
                     const globalTimeline = document.getElementById('activity-timeline-container');
                     if (globalTimeline) {
-                      const gmsg = data.event?.message || data.event?.action || 'Step';
+                      const gmsg = data.event?.message || data.event?.action || data.activity?.action || data.activity?.message || 'Step';
                       globalTimeline.innerHTML += `<div class="p-1.5 rounded bg-ide-surface border border-ide-border text-slate-300 font-mono text-[11px]"><span class="text-cyan-400">[Agent]</span> ${escapeHtml(gmsg)}</div>`;
                     }
-                    setAgentStateBadge(data.event?.action || 'Executing...');
-                  } else if (currentEvent === 'tool') {
+                    setAgentStateBadge(data.event?.action || data.activity?.action || 'Executing...');
+                  } else if (evType === 'tool') {
                     setAgentStateBadge(`Running: ${data.tool}`);
-                  } else if (currentEvent === 'complete') {
-                    handleAgentOutcome(data.outcome, turnEl, turnDot, turnTitle, turnBadge, turnBody, turnActions, accumulatedText);
-                  } else if (currentEvent === 'error') {
+                  } else if (evType === 'complete') {
+                    handleAgentOutcome(data.outcome || data.result, turnEl, turnDot, turnTitle, turnBadge, turnBody, turnActions, accumulatedText);
+                  } else if (evType === 'error') {
                     if (turnBadge) turnBadge.textContent = 'Error';
                     if (turnDot) turnDot.className = 'w-2 h-2 rounded-full bg-rose-400';
                     if (turnBody) turnBody.innerHTML = `<div class="p-2 rounded bg-rose-950/50 border border-rose-500/50 text-rose-300">${escapeHtml(data.error || 'Agent execution failed')}</div>`;
@@ -2192,6 +2193,15 @@
         }
       }
       feed.scrollTop = feed.scrollHeight;
+      const btnSendFinal = document.getElementById('btn-agent-send');
+      const btnStopFinal = document.getElementById('btn-agent-stop');
+      if (btnSendFinal) {
+        btnSendFinal.disabled = false;
+        btnSendFinal.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Run Task';
+      }
+      if (btnStopFinal) {
+        btnStopFinal.classList.add('hidden');
+      }
     }
 
     function isToolEnvelopeText(str) {
