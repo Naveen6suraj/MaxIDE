@@ -474,6 +474,8 @@ export function createApiRouter(
         openPreview: outcome.openPreview,
         openTerminal: outcome.openTerminal,
         previewInfo: (outcome as any).previewInfo,
+        mediaInfo: outcome.mediaInfo,
+        suggestedActions: outcome.suggestedActions,
         questions: outcome.questions,
         clarification: outcome.clarification,
         conversationId,
@@ -602,6 +604,8 @@ export function createApiRouter(
         res.json({
           success: outcome.agentResult.success,
           actionType: outcome.actionType,
+          intent: outcome.intent,
+          mediaInfo: outcome.mediaInfo,
           summary: finalAnswer,
           finalAnswer: finalAnswer,
           stepsCompleted: outcome.agentResult.totalSteps,
@@ -619,6 +623,8 @@ export function createApiRouter(
         res.json({
           success: true,
           actionType: outcome.actionType,
+          intent: outcome.intent,
+          mediaInfo: outcome.mediaInfo,
           summary: finalAnswer,
           finalAnswer: finalAnswer,
           stepsCompleted: 1,

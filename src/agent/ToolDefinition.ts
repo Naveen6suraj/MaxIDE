@@ -137,6 +137,14 @@ export class ToolRegistry {
         'browser_fill': 'browser_fill',
         'fill': 'browser_fill',
 
+        // Media Generation
+        'generateImage': 'generate_image',
+        'generate_image': 'generate_image',
+        'createImage': 'generate_image',
+        'generateVideo': 'generate_video',
+        'generate_video': 'generate_video',
+        'createVideo': 'generate_video',
+
         // Checkpoints & UI Navigation
         'createCheckpoint': 'create_checkpoint',
         'create_checkpoint': 'create_checkpoint',

@@ -299,7 +299,7 @@
         <div id="monaco-container" class="absolute inset-0"></div>
 
         <!-- Binary / Document / Image Preview Container -->
-        <div id="binary-preview-container" class="absolute inset-0 hidden flex flex-col items-center justify-center p-6 bg-[#07090e] text-center select-none z-10">
+        <div id="binary-preview-container" class="absolute inset-0 hidden flex flex-col items-center justify-center p-6 bg-[#07090e] text-center select-none z-10 overflow-y-auto custom-scrollbar">
           <div id="binary-preview-icon" class="text-6xl mb-3">📦</div>
           <h3 id="binary-preview-title" class="text-sm font-semibold text-white font-mono mb-1">file</h3>
           <p id="binary-preview-desc" class="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">Binary file.</p>
@@ -1383,8 +1383,20 @@
 
         if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) {
           iconEl.textContent = '🖼️';
-          descEl.textContent = 'Image Asset Preview';
-          actionsEl.innerHTML = `<img src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="max-h-80 max-w-full rounded-lg border border-ide-border shadow-md object-contain" />`;
+          descEl.textContent = `Image Asset (${ext.toUpperCase()})`;
+          actionsEl.innerHTML = `
+            <div class="flex flex-col items-center gap-3 w-full max-w-2xl">
+              <img src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="max-h-96 max-w-full rounded-xl border border-ide-border shadow-2xl object-contain bg-[#080b11]" />
+              <div class="flex items-center gap-2">
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                  ⬇️ Download Image
+                </a>
+                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
+                  📋 Copy Path
+                </button>
+              </div>
+            </div>
+          `;
         } else if (['zip', 'tar', 'gz', 'tgz', '7z', 'rar'].includes(ext)) {
           iconEl.textContent = '📦';
           descEl.textContent = `Archive File (${ext.toUpperCase()}). All files inside were extracted into the workspace root.`;
@@ -1415,11 +1427,43 @@
           actionsEl.innerHTML = `
             <span class="px-3 py-1.5 rounded bg-amber-950/60 border border-amber-500/40 text-xs text-amber-300 font-mono">Presentation (${fileName})</span>
           `;
-        } else if (['mp3', 'wav', 'ogg', 'm4a', 'mp4', 'mov', 'webm'].includes(ext)) {
+        } else if (['mp4', 'webm', 'mov'].includes(ext)) {
           iconEl.textContent = '🎬';
-          descEl.textContent = 'Media Asset saved in workspace.';
+          descEl.textContent = `High-Definition Video Player (${ext.toUpperCase()})`;
           actionsEl.innerHTML = `
-            <span class="px-3 py-1.5 rounded bg-purple-950/60 border border-purple-500/40 text-xs text-purple-300 font-mono">Media Asset (${fileName})</span>
+            <div class="flex flex-col items-center gap-3 w-full max-w-3xl">
+              <video controls autoplay loop class="w-full rounded-xl border border-cyan-500/40 shadow-2xl bg-black max-h-[420px] object-contain">
+                <source src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" type="video/${ext === 'mov' ? 'mp4' : ext}">
+                Your browser does not support HTML5 video.
+              </video>
+              <div class="flex items-center gap-2">
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                  ⬇️ Download Video
+                </a>
+                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
+                  📋 Copy Path
+                </button>
+                <button onclick="runSuggestedAction('Integrate ${relPath} into the web project index.html with a sleek modern design and video controls')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                  🚀 Embed in Web Project
+                </button>
+              </div>
+            </div>
+          `;
+        } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
+          iconEl.textContent = '🎵';
+          descEl.textContent = `Audio Asset Player (${ext.toUpperCase()})`;
+          actionsEl.innerHTML = `
+            <div class="flex flex-col items-center gap-3 w-full max-w-md">
+              <audio controls autoplay src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="w-full"></audio>
+              <div class="flex items-center gap-2">
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                  ⬇️ Download Audio
+                </a>
+                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
+                  📋 Copy Path
+                </button>
+              </div>
+            </div>
           `;
         } else {
           iconEl.textContent = '💾';
@@ -1849,18 +1893,19 @@
       const isSuccess = outcome.success !== false;
       const isClarification = outcome.actionType === 'clarification' || outcome.status === 'clarification_needed';
       const isChat = outcome.actionType === 'conversation' || outcome.intent === 'CHAT' || outcome.intent === 'EXPLAIN';
+      const isMedia = outcome.intent === 'MEDIA_GEN' || Boolean(outcome.mediaInfo) || (outcome.openFile && /\.(mp4|webm|mov|png|jpg|jpeg|webp|gif|svg)$/i.test(outcome.openFile));
 
       if (turnBadge) {
-        turnBadge.textContent = isClarification ? 'Clarification Gate' : isChat ? 'Assistant' : isSuccess ? 'Completed' : 'Error';
+        turnBadge.textContent = isClarification ? 'Clarification Gate' : isMedia ? '🎬 Media Studio' : isChat ? 'Assistant' : isSuccess ? 'Completed' : 'Error';
       }
       if (turnDot) {
-        turnDot.className = `w-2 h-2 rounded-full ${isClarification ? 'bg-amber-400 animate-ping' : isSuccess ? 'bg-emerald-400' : 'bg-rose-400'}`;
+        turnDot.className = `w-2 h-2 rounded-full ${isClarification ? 'bg-amber-400 animate-ping' : isMedia ? 'bg-purple-400' : isSuccess ? 'bg-emerald-400' : 'bg-rose-400'}`;
       }
       if (turnTitle) {
-        turnTitle.textContent = isClarification ? 'NEED MORE INFO' : isChat ? 'MAX ASSISTANT' : isSuccess ? 'TASK COMPLETED' : 'TASK FAILED';
-        turnTitle.className = `font-bold text-[11px] font-mono ${isClarification ? 'text-amber-400' : isSuccess ? 'text-emerald-400' : 'text-rose-400'}`;
+        turnTitle.textContent = isClarification ? 'NEED MORE INFO' : isMedia ? 'MEDIA GENERATED' : isChat ? 'MAX ASSISTANT' : isSuccess ? 'TASK COMPLETED' : 'TASK FAILED';
+        turnTitle.className = `font-bold text-[11px] font-mono ${isClarification ? 'text-amber-400' : isMedia ? 'text-purple-400' : isSuccess ? 'text-emerald-400' : 'text-rose-400'}`;
       }
-      setAgentStateBadge(isClarification ? 'I need a little more information' : isSuccess ? 'Completed' : 'Error');
+      setAgentStateBadge(isClarification ? 'I need a little more information' : isMedia ? 'Media Generated' : isSuccess ? 'Completed' : 'Error');
 
       if (isClarification) {
         const questionsHtml = (outcome.questions || []).map(q => `
@@ -1896,7 +1941,7 @@
         }
       }
 
-      // Action Pills (Live Website, Embedded Preview, File, Terminal)
+      // Action Pills (Live Website, Embedded Preview, File, Terminal, Media Actions)
       const actionPills = [];
       const activePreviewUrl = outcome.previewInfo?.previewUrl || outcome.openPreview;
       if (activePreviewUrl || (outcome.openFile && outcome.openFile.endsWith('.html'))) {
@@ -1911,12 +1956,46 @@
         `);
       }
       if (outcome.openFile) {
-        actionPills.push(`
-          <button onclick="openFileInEditor('${outcome.openFile}')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
-            📄 View ${outcome.openFile}
-          </button>
-        `);
+        const ext = (outcome.openFile.split('.').pop() || '').toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+        const isImg = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext);
+        if (isVideo) {
+          actionPills.push(`
+            <button onclick="openFileInEditor('${outcome.openFile}')" class="px-3 py-1 rounded-lg bg-purple-900/60 hover:bg-purple-800 border border-purple-500/50 text-purple-200 hover:text-white text-[11px] font-medium transition flex items-center gap-1.5 shadow-sm">
+              🎬 Open in Media Player
+            </button>
+            <a href="/api/workspace/file?path=${encodeURIComponent(outcome.openFile)}&raw=true" download="${outcome.openFile.split(/[\/\\]/).pop()}" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+              ⬇️ Download Video
+            </a>
+          `);
+        } else if (isImg) {
+          actionPills.push(`
+            <button onclick="openFileInEditor('${outcome.openFile}')" class="px-3 py-1 rounded-lg bg-purple-900/60 hover:bg-purple-800 border border-purple-500/50 text-purple-200 hover:text-white text-[11px] font-medium transition flex items-center gap-1.5 shadow-sm">
+              🖼️ View Asset
+            </button>
+            <a href="/api/workspace/file?path=${encodeURIComponent(outcome.openFile)}&raw=true" download="${outcome.openFile.split(/[\/\\]/).pop()}" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+              ⬇️ Download Image
+            </a>
+          `);
+        } else {
+          actionPills.push(`
+            <button onclick="openFileInEditor('${outcome.openFile}')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+              📄 View ${outcome.openFile}
+            </button>
+          `);
+        }
       }
+
+      if (Array.isArray(outcome.suggestedActions) && outcome.suggestedActions.length > 0) {
+        outcome.suggestedActions.forEach(s => {
+          actionPills.push(`
+            <button onclick="runSuggestedAction('${escapeHtml(s.prompt)}')" class="px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
+              ${escapeHtml(s.label)}
+            </button>
+          `);
+        });
+      }
+
       actionPills.push(`
         <button onclick="switchBottomTab('terminal')" class="px-2.5 py-1 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-[11px] font-medium transition flex items-center gap-1">
           💻 Terminal
@@ -2230,6 +2309,25 @@
         return '<div class="p-2.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs">⚡ Verified: MaxIDE executed registered actions and updated project files.</div>';
       }
       let cleaned = sanitizeUserPaths(String(text));
+
+      // Extract safe media tags before escaping HTML
+      const htmlPlaceholders = [];
+      cleaned = cleaned.replace(/<video[\s\S]*?<\/video>/gi, (match) => {
+        const idx = htmlPlaceholders.length;
+        htmlPlaceholders.push(match);
+        return `@@HTML_MEDIA_${idx}@@`;
+      });
+      cleaned = cleaned.replace(/<audio[\s\S]*?<\/audio>/gi, (match) => {
+        const idx = htmlPlaceholders.length;
+        htmlPlaceholders.push(match);
+        return `@@HTML_MEDIA_${idx}@@`;
+      });
+      cleaned = cleaned.replace(/<img[\s\S]*?>/gi, (match) => {
+        const idx = htmlPlaceholders.length;
+        htmlPlaceholders.push(match);
+        return `@@HTML_MEDIA_${idx}@@`;
+      });
+
       let escaped = cleaned
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -2244,18 +2342,29 @@
         return `<pre class="my-2 p-2.5 rounded-lg bg-[#06080c] border border-ide-border overflow-x-auto text-[11px] font-mono text-cyan-300"><code>${code.trim()}</code></pre>`;
       });
 
+      // Markdown media syntax: ![alt](url)
+      escaped = escaped.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+        const cleanSrc = src.trim();
+        const lower = cleanSrc.toLowerCase();
+        if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.includes('.mp4?') || lower.includes('.webm?')) {
+          return `<div class="my-2.5"><video controls autoplay loop src="${cleanSrc}" class="w-full rounded-xl border border-cyan-500/40 max-h-80 shadow-2xl bg-black object-contain"></video><div class="text-[11px] text-cyan-400 mt-1 font-mono">🎬 ${alt || 'Generated Video Asset'}</div></div>`;
+        }
+        return `<div class="my-2.5"><img src="${cleanSrc}" alt="${alt}" class="max-h-80 max-w-full rounded-xl border border-cyan-500/40 shadow-xl object-contain bg-[#080b11]" /><div class="text-[11px] text-cyan-400 mt-1 font-mono">🖼️ ${alt || 'Generated Image Asset'}</div></div>`;
+      });
+
       // Markdown links: [label](open:path) or [label](url)
       escaped = escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
-        if (href.startsWith('open:') || href.endsWith('.html') || href.endsWith('.js') || href.endsWith('.ts') || href.endsWith('.css') || href.endsWith('.json') || href.endsWith('.py') || href.endsWith('.md')) {
-          const filePath = href.replace(/^open:/, '').replace(/^file:\/\/\/?/, '');
+        const cleanHref = href.trim();
+        if (cleanHref.startsWith('open:') || /\.(html|js|ts|css|json|py|md|mp4|webm|mov|png|jpg|jpeg|webp|svg)$/i.test(cleanHref.split('?')[0])) {
+          const filePath = cleanHref.replace(/^open:/, '').replace(/^file:\/\/\/?/, '');
           return `<button onclick="openFileInEditor('${filePath}')" class="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline font-mono text-[11px]" title="Open ${filePath} in editor">📄 ${label}</button>`;
         }
-        return `<a href="${href}" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">${label}</a>`;
+        return `<a href="${cleanHref}" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">${label}</a>`;
       });
 
       // Inline code (with auto file click detection)
       escaped = escaped.replace(/`([^`]+)`/g, (match, code) => {
-        if (/\b[a-zA-Z0-9_\-\.\/]+\.(html|js|ts|css|json|py|md|jsx|tsx)\b/.test(code)) {
+        if (/\b[a-zA-Z0-9_\-\.\/]+\.(html|js|ts|css|json|py|md|jsx|tsx|mp4|webm|mov|png|jpg|jpeg|webp|svg)\b/i.test(code)) {
           return `<button onclick="openFileInEditor('${code}')" class="px-1.5 py-0.5 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-400 font-mono text-[11px]" title="Open ${code} in editor">📄 ${code}</button>`;
         }
         return `<code class="px-1 py-0.5 rounded bg-ide-surface border border-ide-border text-cyan-400 font-mono text-[11px]">${code}</code>`;
@@ -2270,6 +2379,11 @@
       // Paragraphs & lines
       escaped = escaped.replace(/\n\n+/g, '</p><p class="mt-2 text-slate-200 leading-relaxed">');
       escaped = escaped.replace(/\n/g, '<br/>');
+
+      // Restore safe HTML media placeholders
+      htmlPlaceholders.forEach((tag, idx) => {
+        escaped = escaped.replace(`@@HTML_MEDIA_${idx}@@`, tag);
+      });
 
       return `<div class="text-slate-200 leading-relaxed">${escaped}</div>`;
     }
@@ -2580,6 +2694,11 @@
               ? '<span class="text-cyan-400 font-mono text-[10px]">● Configured</span>'
               : '<span class="text-slate-500 font-mono text-[10px]">○ Missing Key / Offline</span>';
 
+          const isOpenAI = p.id === 'openai' || p.name.toLowerCase().includes('openai');
+          const providerSubtext = isOpenAI
+            ? '<span class="text-[10px] text-cyan-400 font-medium">⚡ Powers GPT-4o, DALL-E 3 Image Generation, & Sora Video Models</span>'
+            : '';
+
           modalTable.innerHTML += `
             <div class="p-3.5 rounded-xl bg-ide-surface border border-ide-border space-y-2.5 shadow-sm">
               <div class="flex items-center justify-between">
@@ -2587,6 +2706,7 @@
                   <span class="w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : isConfigured ? 'bg-cyan-400' : 'bg-slate-600'}"></span>
                   <span class="font-bold text-white text-xs">${p.name}</span>
                   <span class="text-slate-400 text-[10px] font-mono uppercase bg-ide-panel px-1.5 py-0.5 rounded border border-ide-border">${p.type}</span>
+                  ${providerSubtext}
                 </div>
                 <div class="flex items-center gap-2">
                   ${statusBadge}
@@ -2609,6 +2729,23 @@
             </div>
           `;
         });
+
+        // 100% Free Autonomous AI Media Engine Banner
+        modalTable.innerHTML += `
+          <div class="p-3.5 rounded-xl bg-gradient-to-r from-cyan-950/40 via-purple-950/30 to-indigo-950/40 border border-cyan-500/30 space-y-2 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-sm">🎬</span>
+                <span class="font-bold text-white text-xs">Autonomous AI Media Generation Studio</span>
+                <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-mono">100% Free • Always Active</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-300 leading-relaxed">
+              MaxIDE features autonomous 60fps video generation (Playwright Chromium recorder) and high-resolution image synthesis (Pollinations Flux AI).
+              Zero API keys required. Supplying an OpenAI API key automatically unlocks optional DALL-E 3 and Sora cloud capabilities.
+            </p>
+          </div>
+        `;
       }
     }
 

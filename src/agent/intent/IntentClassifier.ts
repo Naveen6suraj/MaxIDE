@@ -14,6 +14,7 @@ export type UserIntent =
   | 'REFACTOR'
   | 'BROWSER_TASK'
   | 'GIT_TASK'
+  | 'MEDIA_GEN'
   | 'PROJECT_TASK';
 
 export interface IntentClassification {
@@ -23,6 +24,14 @@ export interface IntentClassification {
   isExecution: boolean;      // Enters autonomous agent loop
   isBrowserTask: boolean;    // Direct URL / preview navigation
   isGitTask: boolean;        // Git operations
+  isMediaGen?: boolean;      // Media synthesis (video/image)
+  mediaType?: 'image' | 'video';
+  mediaDetails?: {
+    prompt: string;
+    durationSeconds?: number;
+    resolution?: string;
+    style?: string;
+  };
   extractedTarget?: string;  // e.g. URL, file path, commit message
   rationale: string;
 }
@@ -153,9 +162,31 @@ export class IntentClassifier {
       };
     }
 
+    // 8.5 Media Synthesis (Images & Videos)
+    // Examples: "generate a sample 4k video of 5 seconds of super car", "create an image of a neon city", "generate wallpaper"
+    const mediaCheck = this.isMediaGen(lower, trimmed);
+    if (mediaCheck.isMedia) {
+      return {
+        intent: 'MEDIA_GEN',
+        confidence: 0.96,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        isMediaGen: true,
+        mediaType: mediaCheck.type,
+        mediaDetails: {
+          prompt: mediaCheck.prompt || trimmed,
+          durationSeconds: mediaCheck.durationSeconds,
+          resolution: mediaCheck.resolution,
+        },
+        rationale: `Media synthesis task: generating AI ${mediaCheck.type || 'media'} (${mediaCheck.resolution || 'HD'}).`,
+      };
+    }
+
     // 9. Full Application / Feature Building
     // Examples: "Build a portfolio website", "Create a React dashboard", "Create a landing page"
-    if (this.isBuild(lower)) {
+    if (this.isBuild(lower, trimmed)) {
       return {
         intent: 'BUILD',
         confidence: 0.95,
@@ -283,7 +314,72 @@ export class IntentClassifier {
     );
   }
 
-  private static isBuild(lower: string): boolean {
+  private static isMediaGen(lower: string, raw: string): {
+    isMedia: boolean;
+    type?: 'image' | 'video';
+    prompt?: string;
+    durationSeconds?: number;
+    resolution?: string;
+  } {
+    // 1. Video patterns (e.g. "generate a sample 4k video of 5 seconds of super car", "create video of ocean waves")
+    const videoPattern = /\b(video|clip|mp4|webm|animation|teaser|footage)\b/i;
+    const isVideoRequest = videoPattern.test(lower) && /\b(generate|make|create|render|produce|record|animate)\b/i.test(lower);
+    const isVideoSubject = /^(video|clip|animation|footage)\s+of\b/i.test(lower);
+
+    if (isVideoRequest || isVideoSubject) {
+      let durationSeconds = 5;
+      const durMatch = lower.match(/(\d+)\s*(?:seconds?|secs?|s\b)/);
+      if (durMatch) {
+        durationSeconds = Math.max(1, Math.min(60, parseInt(durMatch[1], 10)));
+      }
+
+      let resolution = '1080p';
+      if (lower.includes('4k') || lower.includes('uhd')) resolution = '4k';
+      else if (lower.includes('720p') || lower.includes('hd')) resolution = '720p';
+
+      let mediaPrompt = raw
+        .replace(/\b(generate|make|create|render|produce)\s+(me\s+)?(a\s+|an\s+|sample\s+|4k\s+|hd\s+|short\s+|cinematic\s+)*(video|clip|animation|mp4|webm|footage)\s*(of\s+)?/i, '')
+        .replace(/\b(of\s+)?(\d+)\s*(seconds?|secs?|s\b)(\s+of)?/i, '')
+        .trim();
+      if (!mediaPrompt) mediaPrompt = raw;
+
+      return {
+        isMedia: true,
+        type: 'video',
+        prompt: mediaPrompt,
+        durationSeconds,
+        resolution,
+      };
+    }
+
+    // 2. Image patterns (e.g. "generate an image of a cybernetic cat", "create wallpaper of mountains")
+    const imagePattern = /\b(image|photo|picture|wallpaper|illustration|artwork|poster|icon|logo|banner|thumbnail|drawing|painting)\b/i;
+    const isImageRequest = imagePattern.test(lower) && /\b(generate|make|create|render|draw|paint|produce|design)\b/i.test(lower);
+    const isImageSubject = /^(image|photo|picture|wallpaper|illustration)\s+of\b/i.test(lower);
+
+    if (isImageRequest || isImageSubject) {
+      let resolution = '1024x1024';
+      if (lower.includes('4k') || lower.includes('wallpaper') || lower.includes('banner')) resolution = '1920x1080';
+
+      let mediaPrompt = raw
+        .replace(/\b(generate|make|create|render|draw|paint|produce|design)\s+(me\s+)?(a\s+|an\s+|sample\s+|4k\s+|hd\s+|realistic\s+|cinematic\s+)*(image|photo|picture|wallpaper|illustration|artwork|poster|icon|logo|banner|thumbnail|drawing|painting)\s*(of\s+)?/i, '')
+        .trim();
+      if (!mediaPrompt) mediaPrompt = raw;
+
+      return {
+        isMedia: true,
+        type: 'image',
+        prompt: mediaPrompt,
+        resolution,
+      };
+    }
+
+    return { isMedia: false };
+  }
+
+  private static isBuild(lower: string, raw: string = ''): boolean {
+    if (this.isMediaGen(lower, raw).isMedia) return false;
+
     const hasBuildVerb = /\b(build|create|make|scaffold|generate)\b/i.test(lower);
     const hasSoftwareTarget = /\b(app|application|web\s*app|website|site|dashboard|portfolio|ui|api|backend|frontend|game|component|tool|system|service|calculator|counter|todo|tracker|page)\b/i.test(lower);
     if (hasBuildVerb && hasSoftwareTarget) return true;

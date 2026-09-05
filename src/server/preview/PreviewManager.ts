@@ -340,12 +340,36 @@ export class PreviewManager {
       }
     }
 
-    // Determine MIME Type
+    // Determine MIME Type & File Size
     const ext = path.extname(absPath).toLowerCase();
     const mimeType = PreviewManager.MIME_TYPES[ext] || 'application/octet-stream';
+    const stat = fs.statSync(absPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    // Support HTTP Range requests for seamless video/audio seeking and buffering
+    if (range && (ext === '.mp4' || ext === '.webm' || ext === '.mp3' || ext === '.wav' || ext === '.ogg')) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': mimeType,
+      });
+
+      const fileStream = fs.createReadStream(absPath, { start, end });
+      fileStream.pipe(res);
+      return;
+    }
 
     // Set headers
     res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', fileSize);
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 

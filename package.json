@@ -25,7 +25,8 @@
     "test:persistence": "tsx src/tests/persistence_recovery.test.ts",
     "test:preview": "tsx src/tests/preview_routing.test.ts",
     "test:production": "tsx src/tests/production_ide.test.ts",
-    "test:live-ux": "node src/tests/live_user_experience.test.mjs"
+    "test:live-ux": "node src/tests/live_user_experience.test.mjs",
+    "test:media": "tsx src/tests/media_generation.test.ts"
   },
   "keywords": [
     "maxide",

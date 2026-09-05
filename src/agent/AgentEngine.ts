@@ -34,6 +34,7 @@ import { UploadManager } from '../workspace/UploadManager.js';
 import { ClarificationGate, ClarificationResult } from './ClarificationGate.js';
 import { ContentSanitizer } from './safety/ContentSanitizer.js';
 import { IntentClassifier, IntentClassification, UserIntent } from './intent/IntentClassifier.js';
+import { MediaTools, createMediaTools } from './tools/MediaTools.js';
 
 export type AutonomyMode = 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
 
@@ -147,6 +148,10 @@ export class AgentEngine {
     }
 
     for (const tool of createBrowserTools(this.browserAgent)) {
+      this.toolRegistry.registerTool(tool);
+    }
+
+    for (const tool of createMediaTools(this.workspaceManager.getRootPath())) {
       this.toolRegistry.registerTool(tool);
     }
   }
@@ -1564,6 +1569,7 @@ server.listen(PORT, '127.0.0.1', () => {
     openFile?: string;
     openPreview?: string;
     openTerminal?: boolean;
+    mediaInfo?: any;
     suggestedActions?: Array<{ label: string; prompt: string }>;
     autoModel?: AutoModelMetadata;
     clarification?: ClarificationResult;
@@ -1761,6 +1767,103 @@ server.listen(PORT, '127.0.0.1', () => {
         return {
           actionType: 'conversation',
           answer: `### Git Push\n- **Branch:** \`${currentBranch}\`\n- **Remote:** \`origin\`\n\n\`\`\`bash\n${pushRes.stdout || pushRes.stderr || 'Pushed successfully.'}\n\`\`\``,
+        };
+      }
+    }
+
+    // 5.5. MEDIA GENERATION INTENT (Videos & Images)
+    // Examples: "generate a sample 4k video of 5 seconds of super car", "create an image of cyberpunk skyline"
+    if (classification.intent === 'MEDIA_GEN') {
+      const mediaType = classification.mediaType || 'image';
+      const mediaPrompt = classification.mediaDetails?.prompt || trimmed;
+      this.logActivity('thought', `Synthesizing ${mediaType.toUpperCase()}: "${mediaPrompt}"...`);
+
+      const root = this.workspaceManager.getRootPath();
+      const assetsDir = path.join(root, 'assets');
+      if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+
+      if (mediaType === 'video') {
+        const dur = classification.mediaDetails?.durationSeconds || 5;
+        const res = (classification.mediaDetails?.resolution as any) || '1080p';
+
+        this.logActivity('tool_start', `Recording ${res} cinematic video (${dur}s)...`);
+        const videoResult = await MediaTools.generateVideo({
+          prompt: mediaPrompt,
+          durationSeconds: dur,
+          resolution: res,
+          workspaceRoot: root,
+        });
+        this.logActivity('tool_end', `Generated video: ${path.basename(videoResult.filePath)}`);
+
+        const relFile = path.relative(root, videoResult.filePath).replace(/\\/g, '/');
+        const mediaUrl = videoResult.relativeUrl;
+
+        const answerText = `### 🎬 Generated AI Video (${dur}s • ${res.toUpperCase()})\n\n` +
+          `Successfully synthesized video for **"${mediaPrompt}"**.\n\n` +
+          `- **File:** [${relFile}](open:${relFile})\n` +
+          `- **Duration:** ${dur} seconds\n` +
+          `- **Resolution:** ${res.toUpperCase()} @ 60 FPS\n\n` +
+          `<video controls autoplay loop class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 bg-black" src="${mediaUrl}"></video>\n\n` +
+          `*The video file is saved to your project assets and ready to play, embed in websites, or download.*`;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+          openFile: relFile,
+          openPreview: mediaUrl,
+          mediaInfo: {
+            type: 'video',
+            url: mediaUrl,
+            filePath: relFile,
+            prompt: mediaPrompt,
+            duration: dur,
+            resolution: res,
+          },
+          suggestedActions: [
+            { label: '🌐 Open Video in New Tab', prompt: `open ${mediaUrl} in new tab` },
+            { label: '🚀 Build a Showcase Website for this Video', prompt: `Build a modern landing page featuring the video ${relFile} in the hero banner` },
+            { label: '🎨 Generate Cover Image', prompt: `Generate a 4K cover image for ${mediaPrompt}` }
+          ],
+        };
+      } else {
+        // Image generation
+        this.logActivity('tool_start', `Generating AI Image for: "${mediaPrompt}"...`);
+        const imgResult = await MediaTools.generateImage({
+          prompt: mediaPrompt,
+          workspaceRoot: root,
+        });
+        this.logActivity('tool_end', `Generated image: ${path.basename(imgResult.filePath)}`);
+
+        const relFile = path.relative(root, imgResult.filePath).replace(/\\/g, '/');
+        const mediaUrl = imgResult.relativeUrl;
+
+        const answerText = `### 🖼️ Generated AI Image (${imgResult.width}x${imgResult.height})\n\n` +
+          `Successfully generated asset for **"${mediaPrompt}"** via **${imgResult.provider.toUpperCase()}**.\n\n` +
+          `- **File:** [${relFile}](open:${relFile})\n` +
+          `- **Dimensions:** ${imgResult.width} x ${imgResult.height}px\n\n` +
+          `<img src="${mediaUrl}" alt="${mediaPrompt}" class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-2 max-h-80 object-contain bg-[#0a0e1a]" />\n\n` +
+          `*The image is saved to your project assets and ready to embed in code or download.*`;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'MEDIA_GEN',
+          openFile: relFile,
+          openPreview: mediaUrl,
+          mediaInfo: {
+            type: 'image',
+            url: mediaUrl,
+            filePath: relFile,
+            prompt: mediaPrompt,
+          },
+          suggestedActions: [
+            { label: '🌐 Open Image in New Tab', prompt: `open ${mediaUrl} in new tab` },
+            { label: '🚀 Build a Gallery Website', prompt: `Build a modern website showcase featuring ${relFile}` },
+            { label: '🎬 Generate Animated Video of this Image', prompt: `generate a 5 second video of ${mediaPrompt}` }
+          ],
         };
       }
     }
