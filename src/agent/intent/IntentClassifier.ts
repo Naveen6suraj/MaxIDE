@@ -1,7 +1,9 @@
 /**
- * MaxIDE - Intent Classification Engine
- * Separates casual conversation, concept explanation, workbench navigation,
- * git operations, and software engineering agent execution tasks.
+ * MaxIDE - Universal Intent Classification Engine
+ * Intelligently classifies natural language requests into creative & technical domains:
+ * CHAT, EXPLAIN, APPLICATION_BUILD, CODE_EDIT, DEBUG, TEST, REFACTOR, BROWSER_TASK,
+ * GIT_TASK, MEDIA_GEN, PRESENTATION_GEN, DATA_ANALYSIS, DOCUMENT_GEN, RESEARCH_TASK.
+ * STRICT: No routing everything to coding agent.
  */
 
 export type UserIntent =
@@ -15,6 +17,10 @@ export type UserIntent =
   | 'BROWSER_TASK'
   | 'GIT_TASK'
   | 'MEDIA_GEN'
+  | 'DOCUMENT_GEN'
+  | 'PRESENTATION_GEN'
+  | 'DATA_ANALYSIS'
+  | 'RESEARCH_TASK'
   | 'PROJECT_TASK';
 
 export interface IntentClassification {
@@ -31,6 +37,25 @@ export interface IntentClassification {
     durationSeconds?: number;
     resolution?: string;
     style?: string;
+  };
+  presentationDetails?: {
+    topic: string;
+    slideCount: number;
+    theme?: string;
+  };
+  documentDetails?: {
+    topic: string;
+    format: 'pdf' | 'docx';
+    pageCount?: number;
+  };
+  dataDetails?: {
+    targetFile?: string;
+    hasCharts: boolean;
+    analysisGoal: string;
+  };
+  researchDetails?: {
+    topic: string;
+    exportPdf: boolean;
   };
   extractedTarget?: string;  // e.g. URL, file path, commit message
   rationale: string;
@@ -93,7 +118,6 @@ export class IntentClassifier {
 
     // 4. Conceptual Explanation / Educational Inquiry (EXPLAIN)
     // Examples: "what is React?", "explain this code", "what is a promise?", "how does this function work?"
-    // Must NOT contain build/edit execution imperatives like "build it for me" or "add a button"
     if (this.isExplain(lower)) {
       return {
         intent: 'EXPLAIN',
@@ -162,7 +186,86 @@ export class IntentClassifier {
       };
     }
 
-    // 8.5 Media Synthesis (Images & Videos)
+    // 9. Presentation Generation (PowerPoint / PPTX / Slide Decks)
+    // Examples: "Create a professional 10-slide presentation about AI agents", "Create a pitch deck", "generate pptx presentation"
+    const presCheck = this.isPresentationGen(lower, trimmed);
+    if (presCheck.isPresentation) {
+      return {
+        intent: 'PRESENTATION_GEN',
+        confidence: 0.96,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        presentationDetails: {
+          topic: presCheck.topic,
+          slideCount: presCheck.slideCount,
+          theme: presCheck.theme,
+        },
+        rationale: `Presentation generation task: creating real ${presCheck.slideCount}-slide PPTX presentation on "${presCheck.topic}".`,
+      };
+    }
+
+    // 10. Data Analysis & Chart Generation
+    // Examples: "Analyze this CSV and create a report with charts", "Analyze this dataset", "plot charts from data"
+    const dataCheck = this.isDataAnalysis(lower, trimmed);
+    if (dataCheck.isDataAnalysis) {
+      return {
+        intent: 'DATA_ANALYSIS',
+        confidence: 0.96,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        dataDetails: {
+          targetFile: dataCheck.targetFile,
+          hasCharts: dataCheck.hasCharts,
+          analysisGoal: dataCheck.goal,
+        },
+        rationale: `Data analysis task: analyzing dataset with statistical profiling and charts.`,
+      };
+    }
+
+    // 11. Document & Publication Generation (PDF / DOCX Reports)
+    // Examples: "Create a research report and export it as PDF", "Create a 15-page research publication", "export as pdf"
+    const docCheck = this.isDocumentGen(lower, trimmed);
+    if (docCheck.isDocGen) {
+      return {
+        intent: 'DOCUMENT_GEN',
+        confidence: 0.96,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        documentDetails: {
+          topic: docCheck.topic,
+          format: docCheck.format,
+          pageCount: docCheck.pageCount,
+        },
+        rationale: `Document generation task: creating verified publication ${docCheck.format.toUpperCase()} on "${docCheck.topic}".`,
+      };
+    }
+
+    // 12. Autonomous Research & Synthesis Task
+    // Examples: "Research this topic, collect sources, write a report", "research AI agents and synthesize findings"
+    const researchCheck = this.isResearchTask(lower, trimmed);
+    if (researchCheck.isResearch) {
+      return {
+        intent: 'RESEARCH_TASK',
+        confidence: 0.94,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        researchDetails: {
+          topic: researchCheck.topic,
+          exportPdf: researchCheck.exportPdf,
+        },
+        rationale: `Autonomous research task: multi-source literature review on "${researchCheck.topic}".`,
+      };
+    }
+
+    // 13. Media Synthesis (Images & Videos)
     // Examples: "generate a sample 4k video of 5 seconds of super car", "create an image of a neon city", "generate wallpaper"
     const mediaCheck = this.isMediaGen(lower, trimmed);
     if (mediaCheck.isMedia) {
@@ -184,8 +287,8 @@ export class IntentClassifier {
       };
     }
 
-    // 9. Full Application / Feature Building
-    // Examples: "Build a portfolio website", "Create a React dashboard", "Create a landing page"
+    // 14. Full Application / Feature Building
+    // Examples: "Build a portfolio website", "Create a React dashboard", "Create a modern landing page for an AI startup"
     if (this.isBuild(lower, trimmed)) {
       return {
         intent: 'BUILD',
@@ -198,8 +301,7 @@ export class IntentClassifier {
       };
     }
 
-    // 10. Default: PROJECT_TASK
-    // General software engineering execution in workspace
+    // 15. Default: PROJECT_TASK
     return {
       intent: 'PROJECT_TASK',
       confidence: 0.80,
@@ -207,7 +309,7 @@ export class IntentClassifier {
       isExecution: true,
       isBrowserTask: false,
       isGitTask: false,
-      rationale: 'General software engineering workspace execution.',
+      rationale: 'General workspace execution.',
     };
   }
 
@@ -230,7 +332,7 @@ export class IntentClassifier {
       /^help\b$/i,
     ];
 
-    const hasImperativeAction = /\b(build|create|make|fix|edit|run|code|write|scaffold|test|delete|update|open|view|git)\b/i.test(raw);
+    const hasImperativeAction = /\b(build|create|make|fix|edit|run|code|write|scaffold|test|delete|update|open|view|git|generate|analyze|research)\b/i.test(raw);
     if (hasImperativeAction) return false;
 
     return chatPatterns.some((pattern) => pattern.test(cleaned));
@@ -260,17 +362,9 @@ export class IntentClassifier {
   }
 
   private static isBrowserTask(lower: string, raw: string): boolean {
-    // External URLs
-    if (/https?:\/\/[^\s]+/i.test(raw)) {
-      return true;
-    }
+    if (/https?:\/\/[^\s]+/i.test(raw)) return true;
+    if (/localhost:\d+/i.test(raw) || /127\.0\.0\.1:\d+/i.test(raw)) return true;
 
-    // Localhost with port or path
-    if (/localhost:\d+/i.test(raw) || /127\.0\.0\.1:\d+/i.test(raw)) {
-      return true;
-    }
-
-    // "Open website", "open the website", "open preview", "launch website"
     const openWebsitePattern = /\b(open|view|show|launch|preview)\s+(the\s+)?(website|site|web\s+app|preview|live\s+app|browser\s+preview)\b/i;
     if (openWebsitePattern.test(lower) && !/\b(build|create|make|code)\b/i.test(lower)) {
       return true;
@@ -302,9 +396,7 @@ export class IntentClassifier {
   }
 
   private static isRefactor(lower: string): boolean {
-    return (
-      /\b(refactor|clean\s+up|restructure|modernize|reorganize)\b/i.test(lower)
-    );
+    return /\b(refactor|clean\s+up|restructure|modernize|reorganize)\b/i.test(lower);
   }
 
   private static isCodeEdit(lower: string): boolean {
@@ -312,6 +404,115 @@ export class IntentClassifier {
       /\b(edit|modify|update|change|add\s+a\s+button|change\s+the\s+color|tweak)\b/i.test(lower) &&
       /\b(\.js|\.ts|\.tsx|\.html|\.css|\.json|component|style|header|footer|button)\b/i.test(lower)
     );
+  }
+
+  private static isPresentationGen(lower: string, raw: string): {
+    isPresentation: boolean;
+    topic: string;
+    slideCount: number;
+    theme?: string;
+  } {
+    const presKeywords = /\b(presentation|powerpoint|slide\s*deck|slides|pitch\s*deck|keynote|pptx)\b/i;
+    if (!presKeywords.test(lower)) return { isPresentation: false, topic: '', slideCount: 0 };
+
+    let slideCount = 10;
+    const slideMatch = lower.match(/(\d+)\s*[- ]*(?:slide|slides|page|pages)\b/i);
+    if (slideMatch) {
+      slideCount = Math.max(3, Math.min(30, parseInt(slideMatch[1], 10)));
+    }
+
+    let topic = raw
+      .replace(/\b(create|generate|make|build|design|produce)\s+(me\s+)?(a\s+|an\s+|professional\s+|clean\s+)*(\d+\s*[- ]*slides?|presentation|powerpoint|slide\s*deck|pitch\s*deck|pptx)\s*(about|on|for)?/i, '')
+      .replace(/^(about|on|for)\s+/i, '')
+      .trim();
+    if (!topic || topic.length < 2) topic = 'AI Agents and Autonomous Systems';
+
+    let theme = 'modern_clean';
+    if (lower.includes('dark') || lower.includes('cyber')) theme = 'dark_cyber';
+    if (lower.includes('corporate') || lower.includes('navy')) theme = 'corporate_navy';
+    if (lower.includes('minimal') || lower.includes('emerald')) theme = 'emerald_minimal';
+
+    return {
+      isPresentation: true,
+      topic,
+      slideCount,
+      theme,
+    };
+  }
+
+  private static isDataAnalysis(lower: string, raw: string): {
+    isDataAnalysis: boolean;
+    targetFile?: string;
+    hasCharts: boolean;
+    goal: string;
+  } {
+    const dataKeywords = /\b(csv|dataset|dataframe|data\s+analysis|analyze\s+(this\s+)?(data|dataset|csv|metrics)|create\s+charts?\b|plot\s+charts?\b|statistical\s+report)\b/i;
+    if (!dataKeywords.test(lower)) return { isDataAnalysis: false, hasCharts: false, goal: '' };
+
+    const fileMatch = raw.match(/([a-zA-Z0-9_\-./\\]+\.csv)/i);
+    const hasCharts = /\b(charts?|visualizations?|graphs?|plots?)\b/i.test(lower);
+
+    return {
+      isDataAnalysis: true,
+      targetFile: fileMatch ? fileMatch[1] : undefined,
+      hasCharts,
+      goal: raw,
+    };
+  }
+
+  private static isDocumentGen(lower: string, raw: string): {
+    isDocGen: boolean;
+    topic: string;
+    format: 'pdf' | 'docx';
+    pageCount?: number;
+  } {
+    const docKeywords = /\b(pdf|docx|document|publication|whitepaper|resume|report\s+and\s+export\s+(it\s+)?as\s+pdf|export\s+(it\s+)?as\s+pdf|generate\s+pdf)\b/i;
+    if (!docKeywords.test(lower)) return { isDocGen: false, topic: '', format: 'pdf' };
+
+    const isDocx = lower.includes('docx') || lower.includes('word document');
+    const format = isDocx ? 'docx' : 'pdf';
+
+    let pageCount = 5;
+    const pageMatch = lower.match(/(\d+)\s*[- ]*(?:pages?|page)\b/i);
+    if (pageMatch) {
+      pageCount = parseInt(pageMatch[1], 10);
+    }
+
+    let topic = raw
+      .replace(/\b(create|generate|make|write|build)\s+(me\s+)?(a\s+|an\s+|professional\s+|technical\s+)*(\d+\s*[- ]*pages?\s+)?(research\s+report|report|document|publication|whitepaper|resume)\s*(about|on|for)?/i, '')
+      .replace(/\s*(and\s+)?export\s+(it\s+)?as\s+(pdf|docx)\b/i, '')
+      .replace(/^(about|on|for)\s+/i, '')
+      .trim();
+    if (!topic) topic = 'Autonomous AI Agents and Architecture';
+
+    return {
+      isDocGen: true,
+      topic,
+      format,
+      pageCount,
+    };
+  }
+
+  private static isResearchTask(lower: string, raw: string): {
+    isResearch: boolean;
+    topic: string;
+    exportPdf: boolean;
+  } {
+    const researchKeywords = /\b(research\s+this\s+topic|collect\s+sources|deep\s+research|literature\s+review|investigate\s+and\s+write\s+report)\b/i;
+    if (!researchKeywords.test(lower)) return { isResearch: false, topic: '', exportPdf: false };
+
+    const exportPdf = lower.includes('pdf') || lower.includes('export');
+    let topic = raw
+      .replace(/\b(research\s+this\s+topic|research|collect\s+sources|write\s+a\s+report)\s*(about|on|for)?/i, '')
+      .replace(/^(about|on|for)\s+/i, '')
+      .trim();
+    if (!topic) topic = 'Emerging AI Agent Technologies';
+
+    return {
+      isResearch: true,
+      topic,
+      exportPdf,
+    };
   }
 
   private static isMediaGen(lower: string, raw: string): {
@@ -379,9 +580,13 @@ export class IntentClassifier {
 
   private static isBuild(lower: string, raw: string = ''): boolean {
     if (this.isMediaGen(lower, raw).isMedia) return false;
+    if (this.isPresentationGen(lower, raw).isPresentation) return false;
+    if (this.isDataAnalysis(lower, raw).isDataAnalysis) return false;
+    if (this.isDocumentGen(lower, raw).isDocGen) return false;
+    if (this.isResearchTask(lower, raw).isResearch) return false;
 
     const hasBuildVerb = /\b(build|create|make|scaffold|generate)\b/i.test(lower);
-    const hasSoftwareTarget = /\b(app|application|web\s*app|website|site|dashboard|portfolio|ui|api|backend|frontend|game|component|tool|system|service|calculator|counter|todo|tracker|page)\b/i.test(lower);
+    const hasSoftwareTarget = /\b(app|application|web\s*app|website|site|dashboard|portfolio|ui|api|backend|frontend|game|component|tool|system|service|calculator|counter|todo|tracker|page|landing\s+page)\b/i.test(lower);
     if (hasBuildVerb && hasSoftwareTarget) return true;
 
     return /\b(build|create|make|scaffold|generate)\s+(me\s+)?(a|an|the|new)\b/i.test(lower);

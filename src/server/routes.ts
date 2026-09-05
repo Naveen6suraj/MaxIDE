@@ -22,6 +22,7 @@ import { ConversationStore } from '../agent/conversation/ConversationStore.js';
 import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { PathManager } from '../config/PathManager.js';
 import { PreviewManager } from './preview/PreviewManager.js';
+import { VerificationEngine } from '../agent/verification/VerificationEngine.js';
 
 export function createApiRouter(
   providerRegistry: ProviderRegistry,
@@ -1090,6 +1091,52 @@ export function createApiRouter(
     try {
       const list = conversationStore.listByProject(req.params.id);
       res.json({ lastSession: list[0] || null });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 11. Universal Artifact System Endpoints ---
+  router.get('/artifacts', (req, res) => {
+    try {
+      agentEngine.artifactManager.scanWorkspace();
+      const type = req.query.type as any;
+      const search = req.query.search as string | undefined;
+      const list = agentEngine.artifactManager.listArtifacts({ type, search });
+      res.json({ success: true, count: list.length, artifacts: list });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/artifacts/:id', (req, res) => {
+    try {
+      const art = agentEngine.artifactManager.getArtifact(req.params.id);
+      if (!art) return res.status(404).json({ error: 'Artifact not found' });
+      res.json(art);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/artifacts/download/:id', (req, res) => {
+    try {
+      const art = agentEngine.artifactManager.getArtifact(req.params.id);
+      if (!art || !fs.existsSync(art.filePath)) {
+        return res.status(404).json({ error: 'Artifact file not found on disk' });
+      }
+      res.download(art.filePath, art.name);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/artifacts/verify/:id', (req, res) => {
+    try {
+      const art = agentEngine.artifactManager.getArtifact(req.params.id);
+      if (!art) return res.status(404).json({ error: 'Artifact not found' });
+      const verif = VerificationEngine.verifyArtifact(art);
+      res.json(verif);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

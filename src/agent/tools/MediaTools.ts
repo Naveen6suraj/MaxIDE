@@ -129,11 +129,18 @@ export class MediaTools {
       if (imgRes.ok) {
         const buffer = Buffer.from(await imgRes.arrayBuffer());
         if (buffer.length > 1000) {
-          fs.writeFileSync(targetFile, buffer);
+          const isJpg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+          let actualFile = targetFile;
+          let actualRel = relativeUrl;
+          if (isJpg && targetFile.endsWith('.png')) {
+            actualFile = targetFile.replace(/\.png$/, '.jpg');
+            actualRel = relativeUrl.replace(/\.png$/, '.jpg');
+          }
+          fs.writeFileSync(actualFile, buffer);
           return {
             success: true,
-            filePath: targetFile,
-            relativeUrl,
+            filePath: actualFile,
+            relativeUrl: actualRel,
             width,
             height,
             provider: 'pollinations',
@@ -142,23 +149,41 @@ export class MediaTools {
         }
       }
     } catch (err) {
-      console.warn('[MediaTools] Free online image fetch failed/offline, generating high-res vector art:', err);
+      console.warn('[MediaTools] Free online image fetch failed/offline, generating procedural bitmap:', err);
     }
 
-    // 3. Fallback High-Res Vector/SVG Graphic
-    const svgContent = this.generateFallbackSVG(options.prompt, width, height);
-    fs.writeFileSync(targetFile.replace(/\.png$/, '.svg'), svgContent, 'utf8');
-    const svgRelPath = relativePath.replace(/\.png$/, '.svg');
+    // 3. Fallback High-Res Procedural Bitmap Engine via Playwright Chromium
+    try {
+      const svgContent = this.generateFallbackSVG(options.prompt, width, height);
+      const browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage({ viewport: { width, height } });
+      await page.setContent(`<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:#000;">${svgContent}</body></html>`);
+      await page.screenshot({ path: targetFile, type: 'png' });
+      await browser.close();
 
-    return {
-      success: true,
-      filePath: targetFile.replace(/\.png$/, '.svg'),
-      relativeUrl: `/workspace-preview/${svgRelPath}`,
-      width,
-      height,
-      provider: 'procedural',
-      prompt: options.prompt,
-    };
+      return {
+        success: true,
+        filePath: targetFile,
+        relativeUrl,
+        width,
+        height,
+        provider: 'procedural',
+        prompt: options.prompt,
+      };
+    } catch {
+      const svgContent = this.generateFallbackSVG(options.prompt, width, height);
+      const svgFile = targetFile.replace(/\.png$/, '.svg');
+      fs.writeFileSync(svgFile, svgContent, 'utf8');
+      return {
+        success: true,
+        filePath: svgFile,
+        relativeUrl: `/workspace-preview/${path.relative(root, svgFile).replace(/\\/g, '/')}`,
+        width,
+        height,
+        provider: 'procedural',
+        prompt: options.prompt,
+      };
+    }
   }
 
   /**

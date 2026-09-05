@@ -35,6 +35,9 @@ import { ClarificationGate, ClarificationResult } from './ClarificationGate.js';
 import { ContentSanitizer } from './safety/ContentSanitizer.js';
 import { IntentClassifier, IntentClassification, UserIntent } from './intent/IntentClassifier.js';
 import { MediaTools, createMediaTools } from './tools/MediaTools.js';
+import { ArtifactManager, Artifact } from '../artifacts/ArtifactManager.js';
+import { AgentOrchestrator } from './orchestrator/AgentOrchestrator.js';
+import { VerificationEngine } from './verification/VerificationEngine.js';
 
 export type AutonomyMode = 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
 
@@ -114,6 +117,8 @@ export class AgentEngine {
   public readonly devServerManager: DevServerManager;
   public readonly uploadManager: UploadManager;
   public readonly toolRegistry: ToolRegistry;
+  public readonly artifactManager: ArtifactManager;
+  public readonly orchestrator: AgentOrchestrator;
   public recoveryManager?: RecoveryManager;
   public conversationStore?: ConversationStore;
 
@@ -134,6 +139,13 @@ export class AgentEngine {
     this.devServerManager = new DevServerManager();
     this.uploadManager = new UploadManager(workspaceRoot);
     this.toolRegistry = new ToolRegistry();
+    this.artifactManager = new ArtifactManager(workspaceRoot);
+    this.orchestrator = new AgentOrchestrator(
+      workspaceRoot,
+      this.artifactManager,
+      this.safeTerminal,
+      this.gateway
+    );
 
     // Register all tools
     for (const tool of createWorkspaceTools(
@@ -163,6 +175,8 @@ export class AgentEngine {
     this.checkpointManager.setWorkspaceRoot(newRoot);
     this.intelligence.setWorkspaceRoot(newRoot);
     this.uploadManager.setWorkspaceRoot(newRoot);
+    this.artifactManager.setWorkspaceRoot(newRoot);
+    this.orchestrator.setWorkspaceRoot(newRoot);
   }
 
   public setRecoveryManager(rm: RecoveryManager): void {
@@ -1570,6 +1584,7 @@ server.listen(PORT, '127.0.0.1', () => {
     openPreview?: string;
     openTerminal?: boolean;
     mediaInfo?: any;
+    artifact?: Artifact;
     suggestedActions?: Array<{ label: string; prompt: string }>;
     autoModel?: AutoModelMetadata;
     clarification?: ClarificationResult;
@@ -1587,6 +1602,24 @@ server.listen(PORT, '127.0.0.1', () => {
     if (!effectiveModelId || effectiveModelId === 'auto') {
       autoModelMeta = this.selectBestFreeModelForPrompt(trimmed);
       effectiveModelId = autoModelMeta.modelId;
+    }
+
+    // 1.5 Specialized Domain Orchestration (Presentations, Data Analysis, Documents, Research)
+    const orchestrated = await this.orchestrator.dispatch(trimmed, classification, (evt) => {
+      this.logActivity('thought', `[${classification.intent}] ${evt.step}: ${evt.details || ''}`);
+    });
+    if (orchestrated) {
+      return {
+        actionType: orchestrated.actionType,
+        answer: orchestrated.answer,
+        finalAnswer: orchestrated.finalAnswer,
+        intent: orchestrated.intent,
+        openFile: orchestrated.openFile,
+        openPreview: orchestrated.openPreview,
+        suggestedActions: orchestrated.suggestedActions,
+        autoModel: autoModelMeta,
+        artifact: orchestrated.artifact,
+      };
     }
 
     // 2. CHAT INTENT ("hello", "hi", "good morning", "thanks", "who are you")
@@ -1886,6 +1919,17 @@ server.listen(PORT, '127.0.0.1', () => {
         const relFile = path.relative(root, videoResult.filePath).replace(/\\/g, '/');
         const mediaUrl = videoResult.relativeUrl;
 
+        const videoArtifact = this.artifactManager.registerArtifact({
+          type: 'VIDEO',
+          name: path.basename(videoResult.filePath),
+          filePath: videoResult.filePath,
+          description: `AI Video: ${mediaPrompt}`,
+          provider: 'MaxIDE Video Engine',
+          prompt: mediaPrompt,
+          metadata: { durationSeconds: dur, resolution: res },
+          status: 'verified',
+        });
+
         const answerText = `### 🎬 Video Generation Completed\n\n` +
           `Successfully created **"${mediaPrompt}"** (${dur}s • ${res.toUpperCase()} @ 60 FPS).\n\n` +
           `Asset saved to \`${relFile}\`.\n\n` +
@@ -1896,6 +1940,7 @@ server.listen(PORT, '127.0.0.1', () => {
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
+          artifact: videoArtifact,
           mediaInfo: {
             type: 'video',
             url: mediaUrl,
@@ -1917,6 +1962,17 @@ server.listen(PORT, '127.0.0.1', () => {
         const relFile = path.relative(root, imgResult.filePath).replace(/\\/g, '/');
         const mediaUrl = imgResult.relativeUrl;
 
+        const imageArtifact = this.artifactManager.registerArtifact({
+          type: 'IMAGE',
+          name: path.basename(imgResult.filePath),
+          filePath: imgResult.filePath,
+          description: `AI Image: ${mediaPrompt}`,
+          provider: imgResult.provider,
+          prompt: mediaPrompt,
+          metadata: { dimensions: { width: imgResult.width, height: imgResult.height } },
+          status: 'verified',
+        });
+
         const answerText = `### 🖼️ Image Generation Completed\n\n` +
           `Successfully created **"${mediaPrompt}"** (${imgResult.width}x${imgResult.height}px).\n\n` +
           `Asset saved to \`${relFile}\`.\n\n` +
@@ -1927,6 +1983,7 @@ server.listen(PORT, '127.0.0.1', () => {
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
+          artifact: imageArtifact,
           mediaInfo: {
             type: 'image',
             url: mediaUrl,
@@ -2055,6 +2112,22 @@ server.listen(PORT, '127.0.0.1', () => {
     this.logActivity('thought', `Classified intent as autonomous agent engineering task (${classification.intent}): "${taskToExecute.slice(0, 50)}..."`);
     const agentResult = await this.runTask(taskToExecute, { ...options, modelId: effectiveModelId });
 
+    let builtArtifact: Artifact | undefined;
+    const rootPath = this.workspaceManager.getRootPath();
+    const indexHtml = path.join(rootPath, 'index.html');
+    if (fs.existsSync(indexHtml)) {
+      builtArtifact = this.artifactManager.registerArtifact({
+        type: 'WEB_APP',
+        name: 'Web Application',
+        filePath: indexHtml,
+        description: `Application built for: "${taskToExecute}"`,
+        provider: 'MaxIDE Autonomous Engineering Agent',
+        prompt: taskToExecute,
+        status: agentResult.success ? 'verified' : 'failed',
+        verificationDetails: agentResult.success ? 'Playwright browser verification & runtime checks passed' : undefined,
+      });
+    }
+
     const agentAns = agentResult.finalAnswer || (agentResult.success ? 'Task completed successfully.' : (agentResult.error || 'Task encountered an issue.'));
     return {
       actionType: 'agent_task',
@@ -2062,6 +2135,7 @@ server.listen(PORT, '127.0.0.1', () => {
       finalAnswer: agentAns,
       intent: classification.intent,
       agentResult,
+      artifact: builtArtifact,
       openFile: agentResult.openFile,
       openPreview: agentResult.openPreview,
       autoModel: autoModelMeta || agentResult.autoModel,

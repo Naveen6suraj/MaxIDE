@@ -281,6 +281,11 @@ export class ClarificationGate {
       return true;
     }
 
+    // Specific design or domain targets (landing page, dashboard, portfolio, ecommerce, showcase)
+    if (/\b(landing\s+page|dashboard|portfolio|ecommerce|e-commerce|store|showcase|presentation|report|resume|publication)\b/i.test(lower)) {
+      return true;
+    }
+
     return false;
   }
 
