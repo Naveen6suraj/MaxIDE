@@ -105,10 +105,10 @@ async function runFinalAgenticSuite() {
   // ---------------------------------------------------------------------------
   // TEST 2: Software-Engineering Execution Task (Create Node app, run, verify)
   // ---------------------------------------------------------------------------
-  console.log('Test 2: Execution task ("Create a small Node application with a function that returns \'Hello Orbit\', run it, and verify the result.")...');
+  console.log('Test 2: Execution task ("Create a small Node application with a function that returns \'Hello MaxIDE\', run it, and verify the result.")...');
   await page.fill(
     '#agent-prompt-input',
-    "Create a small Node application with a function that returns 'Hello Orbit', run it, and verify the result."
+    "Create a small Node application with a function that returns 'Hello MaxIDE', run it, and verify the result."
   );
   await page.click('#btn-agent-send');
 
@@ -129,24 +129,24 @@ async function runFinalAgenticSuite() {
   const createdAppFile = filesInWs.find(f => {
     if (!f.endsWith('.js') && !f.endsWith('.ts')) return false;
     const c = fs.readFileSync(path.join(WORKSPACE, f), 'utf8');
-    return c.includes('Hello Orbit') || c.includes('Orbit') || c.includes('hello');
+    return c.includes('Hello MaxIDE') || c.includes('MaxIDE') || c.includes('hello');
   }) || filesInWs.find(f => f.endsWith('.js') || f.endsWith('.ts'));
   if (!createdAppFile) {
     throw new Error(`Test 2 FAILED: No application file was physically created in ${WORKSPACE}`);
   }
 
   const fileContent = fs.readFileSync(path.join(WORKSPACE, createdAppFile), 'utf8');
-  if (!fileContent.includes('Hello Orbit') && !fileContent.includes('Orbit') && !fileContent.includes('hello')) {
-    throw new Error(`Test 2 FAILED: Created file ${createdAppFile} does not contain 'Hello Orbit'. Content: ${fileContent}`);
+  if (!fileContent.includes('Hello MaxIDE') && !fileContent.includes('MaxIDE') && !fileContent.includes('hello')) {
+    throw new Error(`Test 2 FAILED: Created file ${createdAppFile} does not contain 'Hello MaxIDE'. Content: ${fileContent}`);
   }
   console.log(`   Physical disk verified: File "${createdAppFile}" created (${fileContent.length} bytes).`);
 
   // Verify node execution output in terminal
   const termOutput = await page.innerText('#terminal-output');
   console.log('   Terminal Output:', termOutput.replace(/\n/g, ' '));
-  const verifiedExecution = termOutput.includes('Hello Orbit') || chatMessages2.includes('Hello Orbit');
+  const verifiedExecution = termOutput.includes('Hello MaxIDE') || chatMessages2.includes('Hello MaxIDE');
   if (!verifiedExecution) {
-    throw new Error('Test 2 FAILED: Node output "Hello Orbit" was not verified in terminal or chat.');
+    throw new Error('Test 2 FAILED: Node output "Hello MaxIDE" was not verified in terminal or chat.');
   }
   console.log('   PASSED: Execution task completed, file exists physically, command returned verified output.\n');
 
@@ -157,7 +157,7 @@ async function runFinalAgenticSuite() {
   const sampleZipPath = path.join(WORKSPACE, 'sample_pack.zip');
   const tempDir = path.join(WORKSPACE, 'temp_zip_src');
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-  fs.writeFileSync(path.join(tempDir, 'service.ts'), 'export const serviceName = "OrbitService";\n');
+  fs.writeFileSync(path.join(tempDir, 'service.ts'), 'export const serviceName = "MaxIDEService";\n');
   fs.writeFileSync(path.join(tempDir, 'config.json'), '{"status": "active", "tier": "premium"}\n');
 
   // Create zip file using PowerShell Compress-Archive

@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Dynamic Model Registry
  * Discovers, filters, organizes, and manages models dynamically without hardcoding.
  */

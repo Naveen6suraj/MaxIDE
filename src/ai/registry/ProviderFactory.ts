@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Provider Factory
  * Dynamically instantiates provider adapters based on configuration.
  * Extensible: new provider adapters can be registered at runtime.

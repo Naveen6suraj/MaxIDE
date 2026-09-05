@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Safe Terminal & Command Boundary Guard
  * 
  * Classifies commands into SAFE, APPROVAL_REQUIRED, and BLOCKED.

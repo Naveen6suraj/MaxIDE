@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Anthropic Claude Native Adapter
  * Uses Claude Messages API (/v1/messages) with tool calling and streaming.
  */

@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Resilient Fallback Chain Manager
  * Handles multi-tiered failover while strictly respecting capability requirements.
  */

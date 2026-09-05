@@ -36,6 +36,13 @@ import { ContentSanitizer } from './safety/ContentSanitizer.js';
 import { IntentClassifier, IntentClassification, UserIntent } from './intent/IntentClassifier.js';
 import { MediaTools, createMediaTools } from './tools/MediaTools.js';
 import { ArtifactManager, Artifact } from '../artifacts/ArtifactManager.js';
+import { CapabilityRegistry } from '../capabilities/CapabilityRegistry.js';
+import { CapabilityPlanner } from '../capabilities/CapabilityPlanner.js';
+import { TaskManager } from '../tasks/TaskManager.js';
+import { BackgroundJobManager } from '../jobs/BackgroundJobManager.js';
+import { createAudioTools } from './tools/AudioTools.js';
+import { createArchiveTools } from './tools/ArchiveTools.js';
+import { createFileSystemTools } from './tools/FileSystemTools.js';
 import { AgentOrchestrator } from './orchestrator/AgentOrchestrator.js';
 import { VerificationEngine } from './verification/VerificationEngine.js';
 
@@ -119,6 +126,10 @@ export class AgentEngine {
   public readonly toolRegistry: ToolRegistry;
   public readonly artifactManager: ArtifactManager;
   public readonly orchestrator: AgentOrchestrator;
+  public readonly capabilityRegistry: CapabilityRegistry;
+  public readonly capabilityPlanner: CapabilityPlanner;
+  public readonly taskManager: TaskManager;
+  public readonly jobManager: BackgroundJobManager;
   public recoveryManager?: RecoveryManager;
   public conversationStore?: ConversationStore;
 
@@ -140,6 +151,10 @@ export class AgentEngine {
     this.uploadManager = new UploadManager(workspaceRoot);
     this.toolRegistry = new ToolRegistry();
     this.artifactManager = new ArtifactManager(workspaceRoot);
+    this.capabilityRegistry = new CapabilityRegistry();
+    this.capabilityPlanner = new CapabilityPlanner(this.capabilityRegistry);
+    this.taskManager = new TaskManager(workspaceRoot);
+    this.jobManager = new BackgroundJobManager(workspaceRoot);
     this.orchestrator = new AgentOrchestrator(
       workspaceRoot,
       this.artifactManager,
@@ -166,6 +181,18 @@ export class AgentEngine {
     for (const tool of createMediaTools(this.workspaceManager.getRootPath())) {
       this.toolRegistry.registerTool(tool);
     }
+
+    for (const tool of createAudioTools(workspaceRoot, this.artifactManager)) {
+      this.toolRegistry.registerTool(tool);
+    }
+
+    for (const tool of createArchiveTools(workspaceRoot)) {
+      this.toolRegistry.registerTool(tool);
+    }
+
+    for (const tool of createFileSystemTools(workspaceRoot)) {
+      this.toolRegistry.registerTool(tool);
+    }
   }
 
   public setWorkspaceRoot(newRoot: string): void {
@@ -177,6 +204,8 @@ export class AgentEngine {
     this.uploadManager.setWorkspaceRoot(newRoot);
     this.artifactManager.setWorkspaceRoot(newRoot);
     this.orchestrator.setWorkspaceRoot(newRoot);
+    this.taskManager.setWorkspaceRoot(newRoot);
+    this.jobManager.setWorkspaceRoot(newRoot);
   }
 
   public setRecoveryManager(rm: RecoveryManager): void {
@@ -1273,7 +1302,7 @@ export class AgentEngine {
       else if (lower.includes('index.js')) targetFile = 'index.js';
 
       let returnVal = 'Hello MaxIDE';
-      if (lower.includes('hello orbit') || lower.includes('orbit')) returnVal = 'Hello Orbit';
+      if (lower.includes('hello orbit') || lower.includes('orbit')) returnVal = 'Hello MaxIDE';
       else if (lower.includes('hello world')) returnVal = 'Hello World';
 
       const nodeJs = `function hello() {\n  return '${returnVal}';\n}\n\nconsole.log(hello());\n\nmodule.exports = { hello };\n`;
@@ -1805,6 +1834,53 @@ server.listen(PORT, '127.0.0.1', () => {
     }
 
     // 5.4. MEDIA ACTION INTENT (Watch or Download generated media)
+    const isPlayAudio = /\b(play|listen|hear|stream)\b.*\b(music|audio|soundtrack|song|track)\b/i.test(lower) || /^(play|listen)\s+(it|the\s+music|the\s+audio|audio|music|soundtrack)\b/i.test(lower) || lower === 'play music' || lower === 'listen' || lower === 'play audio';
+    const isDownloadAudio = /\b(download|save|export|get)\b.*\b(music|audio|soundtrack|song|track|wav|mp3)\b/i.test(lower) || /^(download|save)\s+(the\s+music|the\s+audio|audio|music|soundtrack)\b/i.test(lower);
+
+    if (isPlayAudio) {
+      const latestAudio = this.getLatestAudioFile();
+      if (latestAudio) {
+        const audioUrl = `/workspace-preview/${latestAudio}`;
+        const answerText = `### 🎵 Audio Player: \`${path.basename(latestAudio)}\`\n\n` +
+          `<audio controls autoplay class="w-full rounded-xl border border-cyan-500/40 shadow-xl my-3 bg-[#0a0e1a]" src="${audioUrl}"></audio>\n\n` +
+          `Now playing **\`${latestAudio}\`**. Let me know if you would also like to download it.`;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'AUDIO_GEN',
+          openFile: latestAudio,
+          openPreview: audioUrl,
+        };
+      } else {
+        const answerText = `No audio asset found in \`assets/audio/\`. You can ask me to generate background music or soundtrack anytime (e.g. *"generate background music for my game"*).`;
+        return { actionType: 'conversation', answer: answerText, finalAnswer: answerText, intent: 'CHAT' };
+      }
+    }
+
+    if (isDownloadAudio) {
+      const latestAudio = this.getLatestAudioFile();
+      if (latestAudio) {
+        const filename = path.basename(latestAudio);
+        const downloadUrl = `/api/workspace/file?path=${encodeURIComponent(latestAudio)}&raw=true`;
+        const answerText = `### ⬇️ Download Audio\n\n` +
+          `Your audio soundtrack **\`${filename}\`** is ready:\n\n` +
+          `- **[Click Here to Download ${filename}](${downloadUrl})**\n\n` +
+          `Local file location: \`${latestAudio}\``;
+
+        return {
+          actionType: 'agent_task',
+          answer: answerText,
+          finalAnswer: answerText,
+          intent: 'AUDIO_GEN',
+        };
+      } else {
+        const answerText = `No audio asset found to download. Ask me to generate a soundtrack first.`;
+        return { actionType: 'conversation', answer: answerText, finalAnswer: answerText, intent: 'CHAT' };
+      }
+    }
+
     const isWatchVideo = /\b(watch|play|show|see|view|open)\b.*\b(video|clip|movie|animation|footage)\b/i.test(lower) || /^(watch|play|show|view)\s+(it|the\s+video|video)\b/i.test(lower) || lower === 'watch' || lower === 'play' || lower === 'watch video' || lower === 'play video';
     const isDownloadVideo = /\b(download|save|export|get)\b.*\b(video|clip|movie|animation|file)\b/i.test(lower) || /^(download|save)\s+(it|the\s+video|video)\b/i.test(lower) || lower === 'download' || lower === 'download video';
     const isWatchImage = /\b(watch|show|see|view|open)\b.*\b(image|picture|photo|wallpaper|artwork)\b/i.test(lower) || /^(show|view|open)\s+(the\s+image|image)\b/i.test(lower);
@@ -2140,6 +2216,42 @@ server.listen(PORT, '127.0.0.1', () => {
       openPreview: agentResult.openPreview,
       autoModel: autoModelMeta || agentResult.autoModel,
     };
+  }
+
+  public getLatestAudioFile(): string | null {
+    const root = this.workspaceManager.getRootPath();
+    const candidateDirs = [
+      path.join(root, 'assets', 'audio'),
+      path.join(root, 'assets'),
+    ];
+    const exts = ['.wav', '.mp3', '.ogg', '.flac', '.aac', '.m4a'];
+    const found: string[] = [];
+
+    for (const dir of candidateDirs) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (exts.some(e => f.toLowerCase().endsWith(e))) {
+            found.push(path.join(path.relative(root, dir), f).replace(/\\/g, '/'));
+          }
+        }
+      } catch {}
+    }
+
+    if (found.length === 0) return null;
+
+    found.sort((a, b) => {
+      try {
+        const statA = fs.statSync(path.join(root, a));
+        const statB = fs.statSync(path.join(root, b));
+        return statB.mtimeMs - statA.mtimeMs;
+      } catch {
+        return 0;
+      }
+    });
+
+    return found[0];
   }
 
   public getLatestMediaFile(type: 'video' | 'image'): string | null {

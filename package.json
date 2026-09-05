@@ -27,7 +27,8 @@
     "test:production": "tsx src/tests/production_ide.test.ts",
     "test:live-ux": "node src/tests/live_user_experience.test.mjs",
     "test:media": "tsx src/tests/media_generation.test.ts",
-    "test:universal": "tsx src/tests/universal_platform.test.ts"
+    "test:universal": "tsx src/tests/universal_platform.test.ts",
+    "test:master": "tsx src/tests/master_platform.test.ts"
   },
   "keywords": [
     "maxide",

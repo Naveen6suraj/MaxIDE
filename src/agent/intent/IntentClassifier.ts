@@ -17,10 +17,14 @@ export type UserIntent =
   | 'BROWSER_TASK'
   | 'GIT_TASK'
   | 'MEDIA_GEN'
+  | 'AUDIO_GEN'
   | 'DOCUMENT_GEN'
   | 'PRESENTATION_GEN'
   | 'DATA_ANALYSIS'
   | 'RESEARCH_TASK'
+  | 'ARCHIVE_TASK'
+  | 'FILESYSTEM_TASK'
+  | 'MULTI_CAPABILITY'
   | 'PROJECT_TASK';
 
 export interface IntentClassification {
@@ -57,6 +61,23 @@ export interface IntentClassification {
     topic: string;
     exportPdf: boolean;
   };
+  audioDetails?: {
+    prompt: string;
+    durationSeconds?: number;
+    genre?: string;
+  };
+  archiveDetails?: {
+    action: 'inspect' | 'extract' | 'create';
+    path: string;
+    destination?: string;
+  };
+  filesystemDetails?: {
+    action: 'create_folder' | 'move' | 'rename' | 'organize' | 'delete';
+    path: string;
+    destination?: string;
+  };
+  isMultiCapability?: boolean;
+  capabilitiesRequired?: string[];
   extractedTarget?: string;  // e.g. URL, file path, commit message
   rationale: string;
 }
@@ -265,7 +286,23 @@ export class IntentClassifier {
       };
     }
 
-    // 13. Media Synthesis (Images & Videos)
+    // 13. Multi-Capability Workflow Detection (MUST precede single-modal media)
+    // Example: "Build a game website, generate suitable artwork and background music, add them to the project, run it, and test it"
+    const multiCheck = this.isMultiCapability(lower, trimmed);
+    if (multiCheck.isMulti) {
+      return {
+        intent: 'MULTI_CAPABILITY',
+        confidence: 0.98,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        capabilitiesRequired: multiCheck.capabilities,
+        rationale: `Multi-capability task coordinating: ${multiCheck.capabilities.join(', ')}.`,
+      };
+    }
+
+    // 13.2 Media Synthesis (Images & Videos)
     // Examples: "generate a sample 4k video of 5 seconds of super car", "create an image of a neon city", "generate wallpaper"
     const mediaCheck = this.isMediaGen(lower, trimmed);
     if (mediaCheck.isMedia) {
@@ -284,6 +321,66 @@ export class IntentClassifier {
           resolution: mediaCheck.resolution,
         },
         rationale: `Media synthesis task: generating AI ${mediaCheck.type || 'media'} (${mediaCheck.resolution || 'HD'}).`,
+      };
+    }
+
+    // 13.4. Audio & Music Generation Detection
+    // Examples: "Generate background music for my game", "Create relaxing background music", "Create audio soundtrack"
+    const audioCheck = this.isAudioGen(lower, trimmed);
+    if (audioCheck.isAudio) {
+      return {
+        intent: 'AUDIO_GEN',
+        confidence: 0.96,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        audioDetails: {
+          prompt: audioCheck.prompt,
+          genre: audioCheck.genre,
+          durationSeconds: audioCheck.durationSeconds,
+        },
+        rationale: `Audio generation task: synthesizing ${audioCheck.genre || 'audio'} soundtrack for "${audioCheck.prompt}".`,
+      };
+    }
+
+    // 13.6. Filesystem Management Detection
+    // Examples: "Create a folder called Projects", "Move these files into a folder", "Organize my downloads", "Rename this file"
+    const fsCheck = this.isFilesystemTask(lower, trimmed);
+    if (fsCheck.isFilesystem) {
+      return {
+        intent: 'FILESYSTEM_TASK',
+        confidence: 0.95,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        filesystemDetails: {
+          action: fsCheck.action,
+          path: fsCheck.path,
+          destination: fsCheck.destination,
+        },
+        rationale: `Filesystem management task: ${fsCheck.action} on "${fsCheck.path}".`,
+      };
+    }
+
+    // 13.8. Archive Processing Detection
+    // Examples: "Open this ZIP and analyze the project", "Extract archive", "Package project to zip"
+    const arcCheck = this.isArchiveTask(lower, trimmed);
+    if (arcCheck.isArchive) {
+      return {
+        intent: 'ARCHIVE_TASK',
+        confidence: 0.95,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        archiveDetails: {
+          action: arcCheck.action,
+          path: arcCheck.path,
+          destination: arcCheck.destination,
+        },
+        rationale: `Archive processing task: ${arcCheck.action} on "${arcCheck.path}".`,
       };
     }
 
@@ -590,5 +687,97 @@ export class IntentClassifier {
     if (hasBuildVerb && hasSoftwareTarget) return true;
 
     return /\b(build|create|make|scaffold|generate)\s+(me\s+)?(a|an|the|new)\b/i.test(lower);
+  }
+  private static isMultiCapability(lower: string, raw: string): { isMulti: boolean; capabilities: string[] } {
+    const hasCode = /\b(build|create|code)\b.*\b(game|website|app|application|dashboard|portal)\b/i.test(lower);
+    const hasMedia = /\b(artwork|art|image|images|picture|music|audio|soundtrack|sound|video)\b/i.test(lower);
+
+    if (hasCode && hasMedia) {
+      const caps: string[] = ['SOFTWARE_ENGINEERING', 'FILESYSTEM', 'TERMINAL', 'BROWSER', 'VERIFICATION'];
+      if (/\b(image|artwork|art|illustration|picture)\b/i.test(lower)) caps.push('IMAGE_GENERATION');
+      if (/\b(music|audio|soundtrack|sound|tune)\b/i.test(lower)) caps.push('AUDIO_GENERATION');
+      if (/\b(video|animation|clip)\b/i.test(lower)) caps.push('VIDEO_GENERATION');
+      return { isMulti: true, capabilities: caps };
+    }
+    return { isMulti: false, capabilities: [] };
+  }
+
+  private static isAudioGen(lower: string, raw: string): { isAudio: boolean; prompt: string; genre: string; durationSeconds: number } {
+    const audioKeywords = [
+      'music', 'audio', 'soundtrack', 'sound track', 'song', 'tune', 'melody',
+      'sound effect', 'sound effects', 'background music', 'game audio', 'game music',
+    ];
+    const verbs = ['generate', 'create', 'compose', 'make', 'synthesize', 'produce'];
+
+    const hasVerb = verbs.some(v => new RegExp(`\\b${v}\\b`, 'i').test(lower));
+    const hasAudio = audioKeywords.some(k => lower.includes(k));
+
+    if (hasAudio && (hasVerb || lower.startsWith('music') || lower.startsWith('audio'))) {
+      let genre = 'relaxing';
+      if (/\b(game|arcade|retro|8-bit|chiptune)\b/i.test(lower)) genre = 'game';
+      else if (/\b(cyber|cyberpunk|synth|futuristic|electronic)\b/i.test(lower)) genre = 'cyberpunk';
+      else if (/\b(epic|cinematic|orchestral)\b/i.test(lower)) genre = 'cinematic';
+      else if (/\b(ambient|calm|meditation|chill)\b/i.test(lower)) genre = 'ambient';
+
+      let dur = 10;
+      const secMatch = lower.match(/(\d+)\s*(?:second|sec|s\b)/i);
+      if (secMatch) dur = Math.max(3, Math.min(60, parseInt(secMatch[1], 10)));
+
+      return { isAudio: true, prompt: raw, genre, durationSeconds: dur };
+    }
+    return { isAudio: false, prompt: '', genre: 'relaxing', durationSeconds: 10 };
+  }
+
+  private static isFilesystemTask(lower: string, raw: string): { isFilesystem: boolean; action: any; path: string; destination?: string } {
+    // 1. Create folder
+    const folderMatch = raw.match(/create\s+(?:a\s+)?folder(?:\s+called)?\s+["']?([^"'\n]+)["']?/i);
+    if (folderMatch) {
+      return { isFilesystem: true, action: 'create_folder', path: folderMatch[1].trim() };
+    }
+
+    // 2. Move file(s)
+    const moveMatch = raw.match(/move\s+["']?([^"']+)["']?\s+(?:in|into|to)\s+["']?([^"']+)["']?/i);
+    if (moveMatch) {
+      return { isFilesystem: true, action: 'move', path: moveMatch[1].trim(), destination: moveMatch[2].trim() };
+    }
+
+    // 3. Rename file
+    const renameMatch = raw.match(/rename\s+["']?([^"']+)["']?\s+to\s+["']?([^"']+)["']?/i);
+    if (renameMatch) {
+      return { isFilesystem: true, action: 'rename', path: renameMatch[1].trim(), destination: renameMatch[2].trim() };
+    }
+
+    // 4. Organize files/downloads
+    if (/\b(organize|sort)\b.*\b(files|folder|directory|downloads)\b/i.test(lower)) {
+      let targetDir = '.';
+      const dirMatch = raw.match(/organize\s+(?:my\s+)?([a-zA-Z0-9_-]+)/i);
+      if (dirMatch && !['files', 'my'].includes(dirMatch[1].toLowerCase())) {
+        targetDir = dirMatch[1].trim();
+      }
+      return { isFilesystem: true, action: 'organize', path: targetDir };
+    }
+
+    // 5. Delete file
+    const deleteMatch = raw.match(/delete\s+(?:the\s+)?file\s+["']?([^"']+)["']?/i);
+    if (deleteMatch) {
+      return { isFilesystem: true, action: 'delete', path: deleteMatch[1].trim() };
+    }
+
+    return { isFilesystem: false, action: 'create_folder', path: '' };
+  }
+
+  private static isArchiveTask(lower: string, raw: string): { isArchive: boolean; action: any; path: string; destination?: string } {
+    if (/\b(inspect|view|list|show)\b.*\b(zip|archive)\b/i.test(lower) || /\b(zip|archive)\b.*\b(contents|files)\b/i.test(lower)) {
+      const zipMatch = raw.match(/["']?([^"'\s]+\.zip)["']?/i);
+      return { isArchive: true, action: 'inspect', path: zipMatch ? zipMatch[1] : 'archive.zip' };
+    }
+    if (/\b(extract|unzip|open)\b.*\b(zip|archive)\b/i.test(lower)) {
+      const zipMatch = raw.match(/["']?([^"'\s]+\.zip)["']?/i);
+      return { isArchive: true, action: 'extract', path: zipMatch ? zipMatch[1] : 'archive.zip' };
+    }
+    if (/\b(create|package|compress|bundle)\b.*\b(zip|archive)\b/i.test(lower)) {
+      return { isArchive: true, action: 'create', path: 'dist.zip' };
+    }
+    return { isArchive: false, action: 'inspect', path: '' };
   }
 }

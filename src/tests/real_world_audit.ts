@@ -635,7 +635,7 @@ export async function runRealWorldAudit(): Promise<{ records: AuditRecord[]; sum
     fs.mkdirSync(gitRepoDir, { recursive: true });
 
     execSync('git init -b main', { cwd: gitRepoDir, stdio: 'ignore' });
-    execSync('git config user.name "Orbit Audit"', { cwd: gitRepoDir, stdio: 'ignore' });
+    execSync('git config user.name "MaxIDE Audit"', { cwd: gitRepoDir, stdio: 'ignore' });
     execSync('git config user.email "audit@orbit.dev"', { cwd: gitRepoDir, stdio: 'ignore' });
 
     fs.writeFileSync(path.join(gitRepoDir, 'main.ts'), 'export const a = 1;');

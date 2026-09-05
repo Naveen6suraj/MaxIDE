@@ -44,3 +44,6 @@ tmp/
 *.png
 .tempmediaStorage/
 .user_uploaded/
+test_*
+test_*/**
+.maxide/

@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Privacy Manager
  * Enforces strict boundaries between Local, Cloud, and Hybrid execution.
  * Guarantees zero leakage in LOCAL ONLY mode.

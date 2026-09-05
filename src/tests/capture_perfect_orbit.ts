@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
 async function capture() {
-  console.log('Launching browser to capture perfected Orbit IDE...');
+  console.log('Launching browser to capture perfected MaxIDE...');
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 

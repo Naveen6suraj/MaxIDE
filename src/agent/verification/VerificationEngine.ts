@@ -216,7 +216,83 @@ export class VerificationEngine {
         break;
       }
 
-      case 'WEB_APP':
+      case 'AUDIO': {
+        const minSize = 1000;
+        const sizeOk = sizeBytes >= minSize;
+        checks.push({
+          name: 'Audio Size Threshold',
+          passed: sizeOk,
+          details: `Audio size ${sizeBytes} bytes (min: ${minSize})`,
+        });
+
+        const buf = Buffer.alloc(16);
+        const fd = fs.openSync(filePath, 'r');
+        fs.readSync(fd, buf, 0, 16, 0);
+        fs.closeSync(fd);
+
+        const isWav = buf.toString('utf8', 0, 4) === 'RIFF' && buf.toString('utf8', 8, 12) === 'WAVE';
+        const isMp3 = buf.toString('utf8', 0, 3) === 'ID3' || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0);
+
+        formatValid = (isWav || isMp3) && sizeOk;
+        formatDetails = isWav
+          ? 'Valid RIFF WAVE audio container'
+          : isMp3
+          ? 'Valid MP3 audio container'
+          : 'Invalid or missing audio header';
+
+        let isAudible = true;
+        if (isWav && sizeBytes > 100) {
+          try {
+            const sampleBuf = Buffer.alloc(Math.min(1024, sizeBytes - 44));
+            const afd = fs.openSync(filePath, 'r');
+            fs.readSync(afd, sampleBuf, 0, sampleBuf.length, 44);
+            fs.closeSync(afd);
+            isAudible = sampleBuf.some(b => b !== 0);
+          } catch {}
+        }
+
+        checks.push({
+          name: 'Audio Container & Audible Waveform',
+          passed: formatValid && isAudible,
+          details: formatDetails + (isAudible ? ' (non-silent waveform confirmed)' : ' (silent audio detected)'),
+        });
+        break;
+      }
+
+      case 'ARCHIVE':
+      case 'ZIP': {
+        const minSize = 22;
+        const sizeOk = sizeBytes >= minSize;
+        const buf = Buffer.alloc(4);
+        const fd = fs.openSync(filePath, 'r');
+        fs.readSync(fd, buf, 0, 4, 0);
+        fs.closeSync(fd);
+
+        const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+        formatValid = isZip && sizeOk;
+        formatDetails = formatValid ? 'Valid ZIP archive package (PK\\x03\\x04 header)' : 'Invalid ZIP package header';
+        checks.push({ name: 'Archive Package Header', passed: formatValid, details: formatDetails });
+        break;
+      }
+
+      case 'APPLICATION':
+      case 'WEB_APP': {
+        const isHtml = filePath.toLowerCase().endsWith('.html') || filePath.toLowerCase().endsWith('.htm');
+        let htmlValid = sizeBytes > 50;
+        let details = `Web application file verified (${sizeBytes} bytes)`;
+        if (isHtml) {
+          try {
+            const content = fs.readFileSync(filePath, 'utf8');
+            htmlValid = content.includes('<html') || content.includes('<!DOCTYPE') || content.includes('<div') || content.includes('<script');
+            details = htmlValid ? `Valid HTML5 web application document (${sizeBytes} bytes)` : 'HTML missing document root or markup';
+          } catch {
+            htmlValid = false;
+          }
+        }
+        checks.push({ name: 'Application Structure & Markup', passed: htmlValid, details });
+        break;
+      }
+
       case 'CODE':
       case 'REPORT':
       case 'TEXT':

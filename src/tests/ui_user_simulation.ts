@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Full End-to-End User Simulation
+ * MaxIDE - Full End-to-End User Simulation
  * 
  * Uses Playwright Chromium to autonomously exercise every single UI feature:
  * 1. File Explorer & Monaco Editor

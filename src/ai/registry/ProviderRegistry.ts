@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Dynamic Provider Registry
  * Manages runtime provider lifecycle, health checks, persistence, and additions.
  */

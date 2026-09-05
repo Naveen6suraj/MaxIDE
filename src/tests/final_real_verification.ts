@@ -193,9 +193,9 @@ export async function runFinalRealVerification(): Promise<{ results: FinalVerifi
       res.end(`
         <!DOCTYPE html>
         <html>
-        <head><title>Orbit Real App</title></head>
+        <head><title>MaxIDE Real App</title></head>
         <body style="background:#090d16; color:#fff; font-family:sans-serif; padding:20px;">
-          <h1 id="header">Orbit Real-Time App</h1>
+          <h1 id="header">MaxIDE Real-Time App</h1>
           <button id="action-btn" onclick="document.getElementById('result').textContent = 'Button Clicked Successfully';">Click Me</button>
           <input id="test-input" type="text" placeholder="Type here..." />
           <div id="result" style="margin-top:10px; color:#38bdf8;">Initial State</div>
@@ -222,7 +222,7 @@ export async function runFinalRealVerification(): Promise<{ results: FinalVerifi
 
     // Interact with UI
     await page.click('#action-btn');
-    await page.fill('#test-input', 'Orbit Live Playwright');
+    await page.fill('#test-input', 'MaxIDE Live Playwright');
     const resultText = await page.innerText('#result');
 
     // Capture real PNG screenshot
@@ -236,7 +236,7 @@ export async function runFinalRealVerification(): Promise<{ results: FinalVerifi
     await browser.close();
     devServer.close();
 
-    if (title === 'Orbit Real App' && headerText === 'Orbit Real-Time App' && resultText === 'Button Clicked Successfully' && isPng) {
+    if (title === 'MaxIDE Real App' && headerText === 'MaxIDE Real-Time App' && resultText === 'Button Clicked Successfully' && isPng) {
       playwrightPassed = true;
       record(
         'Browser',
@@ -267,7 +267,7 @@ export async function runFinalRealVerification(): Promise<{ results: FinalVerifi
 
     // 2. Initialize Git & Base project
     execSync('git init -b main', { cwd: e2eDir, stdio: 'ignore' });
-    execSync('git config user.name "Orbit Agent"', { cwd: e2eDir, stdio: 'ignore' });
+    execSync('git config user.name "MaxIDE Agent"', { cwd: e2eDir, stdio: 'ignore' });
     execSync('git config user.email "agent@orbit.dev"', { cwd: e2eDir, stdio: 'ignore' });
 
     fs.writeFileSync(path.join(e2eDir, 'package.json'), JSON.stringify({ name: 'orbit-live-feature', version: '1.0.0' }, null, 2));

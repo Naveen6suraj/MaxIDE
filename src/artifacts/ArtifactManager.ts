@@ -10,17 +10,22 @@ import path from 'path';
 export type ArtifactType =
   | 'CODE'
   | 'WEB_APP'
+  | 'APPLICATION'
   | 'IMAGE'
   | 'VIDEO'
   | 'AUDIO'
+  | 'DOCUMENT'
   | 'PDF'
   | 'DOCX'
   | 'PPTX'
   | 'CSV'
   | 'XLSX'
+  | 'DATA'
   | 'DATASET'
   | 'REPORT'
   | 'PRESENTATION'
+  | 'ARCHIVE'
+  | 'SNAPSHOT'
   | 'TEXT'
   | 'ZIP';
 
@@ -32,11 +37,14 @@ export type PreviewCapability =
   | 'pdf'
   | 'presentation'
   | 'table_chart'
-  | 'web_app';
+  | 'web_app'
+  | 'archive';
 
 export interface ArtifactMetadata {
   dimensions?: { width: number; height: number };
   durationSeconds?: number;
+  sampleRate?: number;
+  channels?: number;
   pageCount?: number;
   slideCount?: number;
   rowCount?: number;
@@ -44,12 +52,15 @@ export interface ArtifactMetadata {
   summary?: string;
   tags?: string[];
   theme?: string;
+  genre?: string;
   sourceFiles?: string[];
   [key: string]: any;
 }
 
 export interface Artifact {
   id: string;
+  taskId?: string;
+  projectId?: string;
   type: ArtifactType;
   name: string;
   description?: string;
@@ -106,6 +117,9 @@ export class ArtifactManager {
    * Register a newly created artifact and persist metadata
    */
   public registerArtifact(data: {
+    id?: string;
+    taskId?: string;
+    projectId?: string;
     type: ArtifactType;
     name: string;
     filePath: string;
@@ -129,12 +143,26 @@ export class ArtifactManager {
       }
     } catch {}
 
-    const id = `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    let prefix = 'ART';
+    if (data.type === 'IMAGE') prefix = 'IMG';
+    else if (data.type === 'AUDIO') prefix = 'AUD';
+    else if (data.type === 'VIDEO') prefix = 'VID';
+    else if (data.type === 'APPLICATION' || data.type === 'WEB_APP') prefix = 'APP';
+    else if (data.type === 'DOCUMENT' || data.type === 'PDF' || data.type === 'DOCX' || data.type === 'PRESENTATION' || data.type === 'PPTX') prefix = 'DOC';
+    else if (data.type === 'DATA' || data.type === 'DATASET' || data.type === 'CSV' || data.type === 'XLSX') prefix = 'DAT';
+    else if (data.type === 'REPORT') prefix = 'REP';
+    else if (data.type === 'ARCHIVE' || data.type === 'ZIP') prefix = 'ARC';
+    else if (data.type === 'CODE') prefix = 'COD';
+    else if (data.type === 'SNAPSHOT') prefix = 'SNP';
+
+    const id = data.id || `${prefix}-${Date.now().toString().slice(-4)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const previewCap = this.determinePreviewCapability(data.type, absPath);
     const mimeType = this.determineMimeType(absPath);
 
     const artifact: Artifact = {
       id,
+      taskId: data.taskId,
+      projectId: data.projectId,
       type: data.type,
       name: data.name || path.basename(absPath),
       description: data.description,

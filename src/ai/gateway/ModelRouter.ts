@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Intelligent Model Router & Capability Guard
  * Evaluates required capabilities, context size, privacy mode, and latency
  * to intelligently pick or validate models.

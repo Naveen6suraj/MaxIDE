@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Portfolio Website Generation from Uploaded CV Test
+ * MaxIDE - Portfolio Website Generation from Uploaded CV Test
  */
 
 import fs from 'fs';

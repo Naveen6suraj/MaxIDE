@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
 async function testAntigravityBehavior() {
-  console.log('Launching browser to test Antigravity behavior in Orbit IDE...');
+  console.log('Launching browser to test Antigravity behavior in MaxIDE...');
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 

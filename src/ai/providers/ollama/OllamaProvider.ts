@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * First-Class Native Ollama Adapter
  * Dynamically discovers models via /api/tags, supports streaming & tool calling.
  * Handles offline state gracefully with retry capability.

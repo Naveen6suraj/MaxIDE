@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Embedded Mock Test Server
  * Simulates real OpenAI-compatible and Ollama endpoints for tests and offline demonstrations.
  */
@@ -83,7 +83,7 @@ export class MockEndpointServer {
                       name: 'writeFile',
                       arguments: {
                         path: 'ollama_result.txt',
-                        content: 'Created by local Ollama model inside Orbit IDE Agent Engine.',
+                        content: 'Created by local Ollama model inside MaxIDE Agent Engine.',
                       },
                     },
                   },

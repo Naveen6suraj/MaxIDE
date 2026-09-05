@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * OpenAI-Compatible Generic Adapter
  * Supports: LM Studio, vLLM, LocalAI, OpenRouter, Cerebras, Together,
  * Nemotron endpoints, custom self-hosted endpoints, enterprise gateways.

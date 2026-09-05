@@ -1142,5 +1142,156 @@ export function createApiRouter(
     }
   });
 
+  // --- 16. Universal AI Capabilities Center ---
+  router.get('/capabilities', (req, res) => {
+    try {
+      const caps = agentEngine.capabilityRegistry.listCapabilities();
+      res.json({ success: true, count: caps.length, capabilities: caps });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/capabilities/status', (req, res) => {
+    try {
+      const report = agentEngine.capabilityRegistry.getStatusReport();
+      res.json({ success: true, ...report });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 17. Live Provider Status ---
+  router.get('/providers/status', (req, res) => {
+    try {
+      const providers = providerRegistry.getAllProviders().map(p => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        isEnabled: p.isEnabled,
+        hasKey: Boolean(p.config.apiKey),
+        baseUrl: p.config.baseUrl,
+      }));
+      res.json({ success: true, count: providers.length, providers });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 18. Persistent Task Management Queue ---
+  router.get('/tasks', (req, res) => {
+    try {
+      const status = req.query.status as any;
+      const tasks = agentEngine.taskManager.listTasks(status);
+      res.json({ success: true, count: tasks.length, tasks });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/tasks/:id', (req, res) => {
+    try {
+      const task = agentEngine.taskManager.getTask(req.params.id);
+      if (!task) return res.status(404).json({ error: 'Task not found' });
+      res.json({ success: true, task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/tasks/:id/pause', (req, res) => {
+    try {
+      const ok = agentEngine.taskManager.pauseTask(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Task not found or cannot be paused' });
+      const task = agentEngine.taskManager.getTask(req.params.id);
+      res.json({ success: true, task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/tasks/:id/resume', (req, res) => {
+    try {
+      const ok = agentEngine.taskManager.resumeTask(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Task not found or cannot be resumed' });
+      const task = agentEngine.taskManager.getTask(req.params.id);
+      res.json({ success: true, task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/tasks/:id/cancel', (req, res) => {
+    try {
+      const ok = agentEngine.taskManager.cancelTask(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Task not found' });
+      const task = agentEngine.taskManager.getTask(req.params.id);
+      res.json({ success: true, task });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 19. Background Generation Jobs ---
+  router.get('/jobs', (req, res) => {
+    try {
+      const capability = req.query.capability as any;
+      const status = req.query.status as any;
+      const jobs = agentEngine.jobManager.listJobs({ capability, status });
+      res.json({ success: true, count: jobs.length, jobs });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/jobs/:id', (req, res) => {
+    try {
+      const job = agentEngine.jobManager.getJob(req.params.id);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      res.json({ success: true, job });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/jobs/:id/cancel', (req, res) => {
+    try {
+      const job = agentEngine.jobManager.cancelJob(req.params.id);
+      if (!job) return res.status(404).json({ error: 'Job not found or already completed' });
+      res.json({ success: true, job });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 20. Interrupted Task Recovery ---
+  router.get('/recovery/status', (req, res) => {
+    try {
+      const recoverable = conversationStore.getLatestRecoverableTask();
+      res.json({
+        hasRecoverable: Boolean(recoverable),
+        recoverableTask: recoverable || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/recovery/resume', async (req, res) => {
+    try {
+      if (!recoveryManager) {
+        return res.status(400).json({ error: 'Recovery manager not configured' });
+      }
+      const taskId = req.body.taskId || conversationStore.getLatestRecoverableTask()?.id;
+      if (!taskId) {
+        return res.status(404).json({ error: 'No interrupted task found to resume' });
+      }
+      const result = await recoveryManager.resumeInterruptedTask(taskId);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }

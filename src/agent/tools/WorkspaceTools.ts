@@ -610,7 +610,7 @@ export function createWorkspaceTools(
     {
       definition: {
         name: 'open_file',
-        description: 'Open a workspace file in the Orbit IDE Monaco editor tab for the user to view or edit.',
+        description: 'Open a workspace file in the MaxIDE Monaco editor tab for the user to view or edit.',
         parameters: {
           type: 'object',
           properties: {

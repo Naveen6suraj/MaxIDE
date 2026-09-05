@@ -502,6 +502,8 @@
         <div class="flex items-center gap-2 text-xs">
           <button onclick="switchAgentTab('chat')" id="atab-chat" class="text-cyan-400 font-semibold border-b-2 border-cyan-400 py-1">Chat</button>
           <button onclick="switchAgentTab('plan')" id="atab-plan" class="text-slate-400 hover:text-white py-1">Plan</button>
+          <button onclick="switchAgentTab('capabilities')" id="atab-capabilities" class="text-slate-400 hover:text-white py-1">Capabilities</button>
+          <button onclick="switchAgentTab('tasks')" id="atab-tasks" class="text-slate-400 hover:text-white py-1">Tasks</button>
           <button onclick="switchAgentTab('timeline')" id="atab-timeline" class="text-slate-400 hover:text-white py-1">Log</button>
           <button onclick="switchAgentTab('diffs')" id="atab-diffs" class="text-slate-400 hover:text-white py-1">Diffs</button>
         </div>
@@ -588,6 +590,28 @@
         </div>
         <div id="patches-list-container" class="space-y-2 text-xs">
           <!-- Populated from /api/patches -->
+        </div>
+      </div>
+
+      <!-- Tab View 5: Universal Capabilities Center -->
+      <div id="aview-capabilities" class="flex-1 overflow-y-auto p-3 custom-scrollbar hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="font-bold text-white text-xs uppercase tracking-wider">Universal Capabilities</h4>
+          <span id="caps-count-badge" class="px-1.5 py-0.5 rounded bg-ide-surface text-cyan-400 text-[10px] font-mono">16 categories</span>
+        </div>
+        <div id="capabilities-list-container" class="space-y-2 text-xs">
+          <!-- Populated from /api/capabilities/status -->
+        </div>
+      </div>
+
+      <!-- Tab View 6: Task Queue -->
+      <div id="aview-tasks" class="flex-1 overflow-y-auto p-3 custom-scrollbar hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="font-bold text-white text-xs uppercase tracking-wider">Task Management Queue</h4>
+          <button onclick="refreshTasks()" class="text-cyan-400 hover:text-cyan-300 text-[10px] font-mono">↻ Refresh</button>
+        </div>
+        <div id="tasks-list-container" class="space-y-2 text-xs">
+          <!-- Populated from /api/tasks -->
         </div>
       </div>
 
@@ -1428,18 +1452,119 @@
     function switchAgentTab(tab) {
       if (!state.agentPanelOpen) toggleAgentPanel();
       state.currentAgentTab = tab;
-      ['chat', 'plan', 'timeline', 'diffs'].forEach(t => {
-        document.getElementById(`aview-${t}`).classList.toggle('hidden', t !== tab);
+      ['chat', 'plan', 'capabilities', 'tasks', 'timeline', 'diffs'].forEach(t => {
+        const view = document.getElementById(`aview-${t}`);
+        if (view) view.classList.toggle('hidden', t !== tab);
         const btn = document.getElementById(`atab-${t}`);
-        if (t === tab) {
-          btn.className = 'text-cyan-400 font-semibold border-b-2 border-cyan-400 py-1';
-        } else {
-          btn.className = 'text-slate-400 hover:text-white py-1';
+        if (btn) {
+          if (t === tab) {
+            btn.className = 'text-cyan-400 font-semibold border-b-2 border-cyan-400 py-1';
+          } else {
+            btn.className = 'text-slate-400 hover:text-white py-1';
+          }
         }
       });
       if (tab === 'plan') refreshPlan();
+      if (tab === 'capabilities') refreshCapabilities();
+      if (tab === 'tasks') refreshTasks();
       if (tab === 'timeline') refreshTimeline();
       if (tab === 'diffs') refreshPatches();
+    }
+
+    async function refreshCapabilities() {
+      const container = document.getElementById('capabilities-list-container');
+      if (!container) return;
+      container.innerHTML = '<p class="text-slate-500 italic text-center py-4">Loading capability registry...</p>';
+      try {
+        const res = await fetch('/api/capabilities/status');
+        const data = await res.json();
+        const badge = document.getElementById('caps-count-badge');
+        if (badge) badge.textContent = `${data.availableCount}/${data.totalCapabilities} Available`;
+        
+        container.innerHTML = (data.capabilities || []).map(c => {
+          let dotColor = 'bg-emerald-400';
+          let statusText = 'Available';
+          let statusBg = 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40';
+          if (c.status === 'configured') {
+            dotColor = 'bg-cyan-400';
+            statusText = 'Configured';
+            statusBg = 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40';
+          } else if (c.status === 'offline') {
+            dotColor = 'bg-rose-400';
+            statusText = 'Offline';
+            statusBg = 'bg-rose-950/80 text-rose-300 border-rose-500/40';
+          }
+          return `
+            <div class="p-2.5 rounded-xl bg-ide-surface border border-ide-border hover:border-cyan-500/30 transition space-y-1">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full ${dotColor}"></span>
+                  <span class="font-bold text-white text-xs">${c.name}</span>
+                </div>
+                <span class="px-1.5 py-0.5 rounded border text-[10px] font-mono ${statusBg}">${statusText}</span>
+              </div>
+              <div class="text-[11px] text-slate-400 font-sans">${c.details || c.category}</div>
+              ${c.providerName ? `<div class="text-[10px] font-mono text-cyan-400">Provider: ${c.providerName}</div>` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        container.innerHTML = `<p class="text-rose-400 text-center py-4">Failed to load capabilities: ${e.message}</p>`;
+      }
+    }
+
+    async function refreshTasks() {
+      const container = document.getElementById('tasks-list-container');
+      if (!container) return;
+      try {
+        const res = await fetch('/api/tasks');
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        if (tasks.length === 0) {
+          container.innerHTML = '<p class="text-slate-500 italic text-center py-4">No active or queued tasks.</p>';
+          return;
+        }
+        container.innerHTML = tasks.map(t => {
+          let badge = 'bg-cyan-950 text-cyan-400';
+          if (t.status === 'COMPLETED') badge = 'bg-emerald-950 text-emerald-400';
+          if (t.status === 'PAUSED') badge = 'bg-amber-950 text-amber-400';
+          if (t.status === 'FAILED') badge = 'bg-rose-950 text-rose-400';
+          return `
+            <div class="p-3 rounded-xl bg-ide-surface border border-ide-border space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-white truncate text-xs">${escapeHtml(t.prompt.slice(0, 40))}</span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono ${badge}">${t.status}</span>
+              </div>
+              <div class="w-full bg-ide-panel rounded-full h-1.5 overflow-hidden">
+                <div class="bg-gradient-to-r from-cyan-500 to-indigo-500 h-1.5 rounded-full" style="width: ${t.progress}%"></div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span>Progress: ${t.progress}%</span>
+                <div class="flex items-center gap-1.5">
+                  ${t.status === 'ACTIVE' ? `<button onclick="pauseTask('${t.id}')" class="text-amber-400 hover:text-amber-300">Pause</button>` : ''}
+                  ${t.status === 'PAUSED' ? `<button onclick="resumeTask('${t.id}')" class="text-emerald-400 hover:text-emerald-300">Resume</button>` : ''}
+                  ${t.status !== 'COMPLETED' && t.status !== 'CANCELLED' ? `<button onclick="cancelTask('${t.id}')" class="text-rose-400 hover:text-rose-300">Cancel</button>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        container.innerHTML = `<p class="text-rose-400 text-center py-4">Could not load tasks: ${e.message}</p>`;
+      }
+    }
+
+    async function pauseTask(id) {
+      await fetch('/api/tasks/' + id + '/pause', { method: 'POST' });
+      refreshTasks();
+    }
+    async function resumeTask(id) {
+      await fetch('/api/tasks/' + id + '/resume', { method: 'POST' });
+      refreshTasks();
+    }
+    async function cancelTask(id) {
+      await fetch('/api/tasks/' + id + '/cancel', { method: 'POST' });
+      refreshTasks();
     }
 
     // --- Workspace Tree ---

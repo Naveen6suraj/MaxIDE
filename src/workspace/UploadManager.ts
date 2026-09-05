@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Multi-Format File, Document, Image & Zip Upload Manager
  * 
  * Supports:

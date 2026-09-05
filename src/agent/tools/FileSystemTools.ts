@@ -149,5 +149,144 @@ export function createFileSystemTools(workspaceRoot: string): ExecutableTool[] {
         }
       },
     },
+    {
+      definition: {
+        name: 'createFolder',
+        description: 'Create a new folder or directory hierarchy safely within the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative path to directory to create' },
+          },
+          required: ['path'],
+        },
+      },
+      permissionLevel: 'APPROVAL_REQUIRED',
+      execute: async (args: { path: string }) => {
+        try {
+          const fullPath = resolveSafeToolPath(workspaceRoot, args.path);
+          if (!fs.existsSync(fullPath)) {
+            fs.mkdirSync(fullPath, { recursive: true });
+          }
+          return { path: args.path, success: true, created: true };
+        } catch (err: any) {
+          return { error: err.message, success: false };
+        }
+      },
+    },
+    {
+      definition: {
+        name: 'moveFile',
+        description: 'Move or rename a file or directory safely within the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            source: { type: 'string', description: 'Relative path to source file or folder' },
+            destination: { type: 'string', description: 'Relative path to destination' },
+          },
+          required: ['source', 'destination'],
+        },
+      },
+      permissionLevel: 'APPROVAL_REQUIRED',
+      execute: async (args: { source: string; destination: string }) => {
+        try {
+          const srcFull = resolveSafeToolPath(workspaceRoot, args.source);
+          const destFull = resolveSafeToolPath(workspaceRoot, args.destination);
+          if (!fs.existsSync(srcFull)) {
+            return { error: `Source not found: ${args.source}`, success: false };
+          }
+          const parent = path.dirname(destFull);
+          if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
+          fs.renameSync(srcFull, destFull);
+          return { source: args.source, destination: args.destination, success: true };
+        } catch (err: any) {
+          return { error: err.message, success: false };
+        }
+      },
+    },
+    {
+      definition: {
+        name: 'deleteFile',
+        description: 'Delete a file or empty folder within the workspace with safety checks.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative path to file to delete' },
+            recursive: { type: 'boolean', description: 'Whether to delete directory recursively' },
+          },
+          required: ['path'],
+        },
+      },
+      permissionLevel: 'APPROVAL_REQUIRED',
+      execute: async (args: { path: string; recursive?: boolean }) => {
+        try {
+          const fullPath = resolveSafeToolPath(workspaceRoot, args.path);
+          if (!fs.existsSync(fullPath)) {
+            return { error: `Path not found: ${args.path}`, success: false };
+          }
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+            fs.rmSync(fullPath, { recursive: Boolean(args.recursive), force: true });
+          } else {
+            fs.unlinkSync(fullPath);
+          }
+          return { path: args.path, success: true, deleted: true };
+        } catch (err: any) {
+          return { error: err.message, success: false };
+        }
+      },
+    },
+    {
+      definition: {
+        name: 'organizeDirectory',
+        description: 'Organize files in a directory by grouping them into classified category folders (images, documents, code, data).',
+        parameters: {
+          type: 'object',
+          properties: {
+            directory: { type: 'string', description: 'Relative directory path to organize' },
+          },
+        },
+      },
+      permissionLevel: 'APPROVAL_REQUIRED',
+      execute: async (args: { directory?: string }) => {
+        try {
+          const targetDir = resolveSafeToolPath(workspaceRoot, args.directory || '.');
+          if (!fs.existsSync(targetDir)) return { error: 'Target directory not found', success: false };
+
+          const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+          const categoryMap: Record<string, string[]> = {
+            images: ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif'],
+            documents: ['.pdf', '.docx', '.pptx', '.txt', '.md', '.rtf'],
+            code: ['.js', '.ts', '.html', '.css', '.json', '.py', '.cpp', '.rs'],
+            data: ['.csv', '.xlsx', '.sqlite', '.db', '.parquet'],
+          };
+
+          const moved: Array<{ file: string; category: string }> = [];
+
+          for (const e of entries) {
+            if (!e.isFile() || e.name.startsWith('.')) continue;
+            const ext = path.extname(e.name).toLowerCase();
+            let cat = 'others';
+            for (const [category, exts] of Object.entries(categoryMap)) {
+              if (exts.includes(ext)) {
+                cat = category;
+                break;
+              }
+            }
+
+            const catDir = path.join(targetDir, cat);
+            if (!fs.existsSync(catDir)) fs.mkdirSync(catDir, { recursive: true });
+            const oldPath = path.join(targetDir, e.name);
+            const newPath = path.join(catDir, e.name);
+            fs.renameSync(oldPath, newPath);
+            moved.push({ file: e.name, category: cat });
+          }
+
+          return { success: true, filesOrganized: moved.length, moved };
+        } catch (err: any) {
+          return { error: err.message, success: false };
+        }
+      },
+    },
   ];
 }

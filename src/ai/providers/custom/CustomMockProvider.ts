@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Custom Mock Provider
  * High-fidelity deterministic provider for test suites, offline simulation,
  * fallback testing, and tool verification.
@@ -188,7 +188,7 @@ export class CustomMockProvider extends BaseProvider {
           name: 'writeFile',
           arguments: {
             path: 'output.txt',
-            content: 'Task completed by Orbit IDE AI Gateway.\nProvider: ' + this.name,
+            content: 'Task completed by MaxIDE AI Gateway.\nProvider: ' + this.name,
           },
         },
       };

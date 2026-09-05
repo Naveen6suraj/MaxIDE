@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Groq Provider Adapter
  * Fast LPU inference using OpenAI-compatible endpoint with Groq defaults.
  */

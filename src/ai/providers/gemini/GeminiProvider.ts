@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Google Gemini Native Adapter
  * Uses v1beta REST API with native function calling and streaming.
  */

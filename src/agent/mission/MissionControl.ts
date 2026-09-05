@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Multi-Agent Mission Control & Task Coordinator
  * 
  * Manages concurrent/queued tasks with file conflict detection.

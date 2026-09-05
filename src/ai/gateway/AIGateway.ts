@@ -1,5 +1,5 @@
 /**
- * Orbit IDE - Unlimited AI Provider Platform
+ * MaxIDE - Unlimited AI Provider Platform
  * Central AI Gateway
  * The single unified gateway between agents/users and all AI providers.
  * Enforces privacy, capability detection, dynamic model routing,

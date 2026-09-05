@@ -58,7 +58,7 @@ export async function runIdeE2ETests(): Promise<{ passed: boolean; results: Test
   // Initialize real Git repository in testWorkspace
   try {
     execSync('git init -b main', { cwd: testWorkspace, stdio: 'ignore' });
-    execSync('git config user.name "Orbit Test"', { cwd: testWorkspace, stdio: 'ignore' });
+    execSync('git config user.name "MaxIDE Test"', { cwd: testWorkspace, stdio: 'ignore' });
     execSync('git config user.email "test@orbit.dev"', { cwd: testWorkspace, stdio: 'ignore' });
   } catch {
     // Fallback if git init fails
@@ -158,7 +158,7 @@ export async function runIdeE2ETests(): Promise<{ passed: boolean; results: Test
         name: 'create_file',
         arguments: {
           path: 'src/components/HelloWorld.tsx',
-          content: 'export function HelloWorld() { return <div>Hello Orbit IDE</div>; }',
+          content: 'export function HelloWorld() { return <div>Hello MaxIDE</div>; }',
         },
       }],
     });
@@ -240,7 +240,7 @@ export async function runIdeE2ETests(): Promise<{ passed: boolean; results: Test
   // --- TEST G: Browser ---
   await executeTest('G', 'Browser & Dev Server Verification', async () => {
     // Start sample dev server
-    const serverScript = 'import http from "http"; http.createServer((q,r)=>{r.writeHead(200,{"Content-Type":"text/html"});r.end("<title>Orbit App</title><h1>Welcome</h1>");}).listen(3919);';
+    const serverScript = 'import http from "http"; http.createServer((q,r)=>{r.writeHead(200,{"Content-Type":"text/html"});r.end("<title>MaxIDE App</title><h1>Welcome</h1>");}).listen(3919);';
     agentEngine.workspaceManager.writeFile('server.mjs', serverScript);
 
     await agentEngine.devServerManager.startServer('test-dev-server', 'node server.mjs', testWorkspace, 3919);
@@ -249,7 +249,7 @@ export async function runIdeE2ETests(): Promise<{ passed: boolean; results: Test
     const navResult = await agentEngine.browserAgent.navigate('http://127.0.0.1:3919');
     agentEngine.devServerManager.stopServer('test-dev-server');
 
-    if (!navResult.success || navResult.title !== 'Orbit App') {
+    if (!navResult.success || navResult.title !== 'MaxIDE App') {
       throw new Error(`Browser verification failed: ${JSON.stringify(navResult)}`);
     }
 
