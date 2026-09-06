@@ -8,6 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Artifact, ArtifactType } from '../../artifacts/ArtifactManager.js';
+import { MediaInspector } from '../tools/MediaInspector.js';
 
 export interface VerificationResult {
   verified: boolean;
@@ -80,7 +81,7 @@ export class VerificationEngine {
 
     switch (artifact.type) {
       case 'IMAGE': {
-        const ext = path.extname(filePath).toLowerCase();
+        const imgMeta = MediaInspector.inspectImage(filePath);
         const minSize = 500;
         const sizeOk = sizeBytes >= minSize;
         checks.push({
@@ -89,34 +90,12 @@ export class VerificationEngine {
           details: `Image size ${sizeBytes} bytes (min: ${minSize})`,
         });
 
-        const buf = Buffer.alloc(8);
-        const fd = fs.openSync(filePath, 'r');
-        fs.readSync(fd, buf, 0, 8, 0);
-        fs.closeSync(fd);
+        formatValid = imgMeta.valid && sizeOk;
+        formatDetails = formatValid
+          ? `Valid ${imgMeta.format} image (${imgMeta.width}x${imgMeta.height}px, MIME: ${imgMeta.mimeType})`
+          : `Invalid image: ${imgMeta.error || 'unsupported image header or dimensions'}`;
 
-        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-        const isJpg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
-        const isWebp = buf.toString('utf8', 0, 4) === 'RIFF';
-        const isSvg = ext === '.svg' && fs.readFileSync(filePath, 'utf8').includes('<svg');
-
-        if (isPng) {
-          formatValid = true;
-          formatDetails = 'Valid PNG magic header (\\x89PNG)';
-        } else if (isJpg) {
-          formatValid = true;
-          formatDetails = 'Valid JPEG magic header (\\xFF\\xD8\\xFF)';
-        } else if (isWebp) {
-          formatValid = true;
-          formatDetails = 'Valid WebP container (RIFF)';
-        } else if (isSvg) {
-          formatValid = true;
-          formatDetails = 'Valid SVG XML structure';
-        } else {
-          formatValid = false;
-          formatDetails = 'Unrecognized or invalid image header';
-        }
-
-        checks.push({ name: 'Image Header & Format', passed: formatValid && sizeOk, details: formatDetails });
+        checks.push({ name: 'Image Header & Format', passed: formatValid, details: formatDetails });
         break;
       }
 
@@ -129,21 +108,14 @@ export class VerificationEngine {
           details: `Video size ${sizeBytes} bytes (min: ${minSize})`,
         });
 
-        const buf = Buffer.alloc(12);
-        const fd = fs.openSync(filePath, 'r');
-        fs.readSync(fd, buf, 0, 12, 0);
-        fs.closeSync(fd);
+        const mime = MediaInspector.detectMimeType(filePath);
+        const isBinary = MediaInspector.isBinary(filePath);
+        const hasVideoMime = mime.startsWith('video/');
 
-        // WebM has EBML header: 0x1A 0x45 0xDF 0xA3. MP4 has 'ftyp' at offset 4
-        const isWebm = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
-        const isMp4 = buf.toString('utf8', 4, 8) === 'ftyp' || buf.toString('utf8', 0, 4) === 'ftyp';
-
-        formatValid = (isWebm || isMp4 || sizeBytes > 10000) && sizeOk;
-        formatDetails = isWebm
-          ? 'Valid WebM container (EBML header)'
-          : isMp4
-          ? 'Valid MP4 container (ftyp header)'
-          : 'Video container binary verified';
+        formatValid = isBinary && hasVideoMime && sizeOk;
+        formatDetails = formatValid
+          ? `Valid video container stream (MIME: ${mime}, size: ${sizeBytes} bytes)`
+          : `Invalid video file: size ${sizeBytes}, mime ${mime}`;
 
         checks.push({ name: 'Video Container Integrity', passed: formatValid, details: formatDetails });
         break;

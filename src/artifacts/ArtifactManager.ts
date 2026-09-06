@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { MediaInspector } from '../agent/tools/MediaInspector.js';
 
 export type ArtifactType =
   | 'CODE'
@@ -292,10 +293,15 @@ export class ArtifactManager {
       case '.webm':
       case '.mov':
       case '.avi':
+      case '.m4v':
+      case '.mkv':
         return 'VIDEO';
       case '.mp3':
       case '.wav':
       case '.ogg':
+      case '.flac':
+      case '.m4a':
+      case '.aac':
         return 'AUDIO';
       case '.pdf':
         return 'PDF';
@@ -343,29 +349,16 @@ export class ArtifactManager {
     }
   }
 
-  private determineMimeType(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
-    const map: Record<string, string> = {
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.webp': 'image/webp',
-      '.svg': 'image/svg+xml',
-      '.mp4': 'video/mp4',
-      '.webm': 'video/webm',
-      '.pdf': 'application/pdf',
-      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.csv': 'text/csv',
-      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      '.html': 'text/html',
-      '.js': 'text/javascript',
-      '.ts': 'text/typescript',
-      '.json': 'application/json',
-      '.md': 'text/markdown',
-      '.txt': 'text/plain',
-    };
-    return map[ext] || 'application/octet-stream';
+  public determineMimeType(filePath: string): string {
+    return MediaInspector.detectMimeType(filePath);
+  }
+
+  public isBinary(filePath: string): boolean {
+    return MediaInspector.isBinary(filePath);
+  }
+
+  public isTextFile(filePath: string): boolean {
+    return MediaInspector.isTextFile(filePath);
   }
 
   private saveToDisk(): void {

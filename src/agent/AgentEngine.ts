@@ -35,6 +35,7 @@ import { ClarificationGate, ClarificationResult } from './ClarificationGate.js';
 import { ContentSanitizer } from './safety/ContentSanitizer.js';
 import { IntentClassifier, IntentClassification, UserIntent } from './intent/IntentClassifier.js';
 import { MediaTools, createMediaTools } from './tools/MediaTools.js';
+import { MediaInspector } from './tools/MediaInspector.js';
 import { ArtifactManager, Artifact } from '../artifacts/ArtifactManager.js';
 import { CapabilityRegistry } from '../capabilities/CapabilityRegistry.js';
 import { CapabilityPlanner } from '../capabilities/CapabilityPlanner.js';
@@ -782,7 +783,7 @@ export class AgentEngine {
         const args = tc.arguments as any;
         if (['create_file', 'edit_file', 'patch_file', 'open_file'].includes(tc.name)) {
           const p = args?.path;
-          if (p) {
+          if (p && MediaInspector.isTextFile(p)) {
             detectedOpenFile = p;
             if (p.endsWith('.html')) {
               const cleanRel = p.replace(/\\/g, '/').replace(/^\.?\/+/, '');
@@ -1612,6 +1613,8 @@ server.listen(PORT, '127.0.0.1', () => {
     openFile?: string;
     openPreview?: string;
     openTerminal?: boolean;
+    openMediaStudio?: boolean;
+    openArtifactId?: string;
     mediaInfo?: any;
     artifact?: Artifact;
     suggestedActions?: Array<{ label: string; prompt: string }>;
@@ -1850,7 +1853,7 @@ server.listen(PORT, '127.0.0.1', () => {
           answer: answerText,
           finalAnswer: answerText,
           intent: 'AUDIO_GEN',
-          openFile: latestAudio,
+          openMediaStudio: true,
           openPreview: audioUrl,
         };
       } else {
@@ -1899,7 +1902,7 @@ server.listen(PORT, '127.0.0.1', () => {
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
-          openFile: latestVideo,
+          openMediaStudio: true,
           openPreview: videoUrl,
         };
       } else {
@@ -1943,7 +1946,7 @@ server.listen(PORT, '127.0.0.1', () => {
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
-          openFile: latestImg,
+          openMediaStudio: true,
           openPreview: imgUrl,
         };
       }
@@ -1982,18 +1985,30 @@ server.listen(PORT, '127.0.0.1', () => {
       if (mediaType === 'video') {
         const dur = classification.mediaDetails?.durationSeconds || 5;
         const res = (classification.mediaDetails?.resolution as any) || '1080p';
+        const isHdr = lower.includes('hdr');
+        const is4k = lower.includes('4k') || lower.includes('uhd') || res === '4k';
+        const is60Fps = lower.includes('60fps') || lower.includes('60 fps');
 
         this.logActivity('tool_start', `Recording ${res} cinematic video (${dur}s)...`);
         const videoResult = await MediaTools.generateVideo({
           prompt: mediaPrompt,
           durationSeconds: dur,
           resolution: res,
+          hdr: isHdr,
+          fps: is60Fps ? 60 : 30,
           workspaceRoot: root,
         });
         this.logActivity('tool_end', `Generated video: ${path.basename(videoResult.filePath)}`);
 
         const relFile = path.relative(root, videoResult.filePath).replace(/\\/g, '/');
         const mediaUrl = videoResult.relativeUrl;
+
+        const inspected = videoResult.inspectedMetadata || await MediaInspector.inspectVideo(videoResult.filePath, {
+          resolution: res,
+          durationSeconds: dur,
+          fps: is60Fps ? 60 : 30,
+          hdr: isHdr,
+        });
 
         const videoArtifact = this.artifactManager.registerArtifact({
           type: 'VIDEO',
@@ -2002,28 +2017,53 @@ server.listen(PORT, '127.0.0.1', () => {
           description: `AI Video: ${mediaPrompt}`,
           provider: 'MaxIDE Video Engine',
           prompt: mediaPrompt,
-          metadata: { durationSeconds: dur, resolution: res },
-          status: 'verified',
+          metadata: {
+            durationSeconds: inspected.durationSeconds,
+            resolution: inspected.resolutionSummary,
+            format: inspected.container,
+            codec: inspected.codec,
+            fps: inspected.fpsSummary,
+            hdr: inspected.hdrSummary,
+            discrepancies: inspected.discrepancies,
+          },
+          status: inspected.playable ? 'verified' : 'failed',
         });
 
-        const answerText = `### 🎬 Video Generation Completed\n\n` +
-          `Successfully created **"${mediaPrompt}"** (${dur}s • ${res.toUpperCase()} @ 60 FPS).\n\n` +
-          `Asset saved to \`${relFile}\`.\n\n` +
-          `The video is ready. Whenever you want to watch it or download it, just ask me.`;
+        // Construct Rich Artifact Card matching Requirement 22
+        const cardHeader = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+        const answerText = `### 🎬 VIDEO READY\n` +
+          `${cardHeader}\n` +
+          `**${mediaPrompt}**\n\n` +
+          `- **Resolution**: ${inspected.resolutionSummary}\n` +
+          `- **Duration**: ${inspected.durationSeconds} seconds\n` +
+          `- **Format**: ${inspected.container} (${inspected.codec})\n` +
+          `- **Frame Rate**: ${inspected.fpsSummary}\n` +
+          `- **HDR**: ${inspected.hdrSummary}\n` +
+          `- **Playback**: Verified playable\n` +
+          `${cardHeader}\n\n` +
+          `[▶ Play Video](action://play-artifact/${videoArtifact.id}) &nbsp;|&nbsp; ` +
+          `[Open in Media Studio](action://open-media-studio/${videoArtifact.id}) &nbsp;|&nbsp; ` +
+          `[Open in New Tab](${mediaUrl}) &nbsp;|&nbsp; ` +
+          `[Open File](/api/workspace/file?path=${encodeURIComponent(relFile)}&raw=true)\n\n` +
+          `*Asset saved to \`${relFile}\`*`;
 
         return {
           actionType: 'agent_task',
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
+          openMediaStudio: true,
+          openArtifactId: videoArtifact.id,
+          openPreview: mediaUrl,
+          // CRITICAL: openFile is intentionally omitted so Monaco editor never loads the binary WebM/MP4
           artifact: videoArtifact,
           mediaInfo: {
             type: 'video',
             url: mediaUrl,
             filePath: relFile,
             prompt: mediaPrompt,
-            duration: dur,
-            resolution: res,
+            duration: inspected.durationSeconds,
+            resolution: inspected.resolutionSummary,
           },
         };
       } else {
@@ -2037,6 +2077,7 @@ server.listen(PORT, '127.0.0.1', () => {
 
         const relFile = path.relative(root, imgResult.filePath).replace(/\\/g, '/');
         const mediaUrl = imgResult.relativeUrl;
+        const imgMeta = MediaInspector.inspectImage(imgResult.filePath);
 
         const imageArtifact = this.artifactManager.registerArtifact({
           type: 'IMAGE',
@@ -2045,20 +2086,33 @@ server.listen(PORT, '127.0.0.1', () => {
           description: `AI Image: ${mediaPrompt}`,
           provider: imgResult.provider,
           prompt: mediaPrompt,
-          metadata: { dimensions: { width: imgResult.width, height: imgResult.height } },
+          metadata: { dimensions: { width: imgMeta.width, height: imgMeta.height } },
           status: 'verified',
         });
 
-        const answerText = `### 🖼️ Image Generation Completed\n\n` +
-          `Successfully created **"${mediaPrompt}"** (${imgResult.width}x${imgResult.height}px).\n\n` +
-          `Asset saved to \`${relFile}\`.\n\n` +
-          `The image is ready. Whenever you want to view it or download it, just ask me.`;
+        const cardHeader = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+        const answerText = `### 🖼️ IMAGE READY\n` +
+          `${cardHeader}\n` +
+          `**${mediaPrompt}**\n\n` +
+          `- **Resolution**: ${imgMeta.width} × ${imgMeta.height}\n` +
+          `- **Format**: ${imgMeta.format} (${imgMeta.mimeType})\n` +
+          `- **Provider**: ${imgResult.provider}\n` +
+          `${cardHeader}\n\n` +
+          `[🖼️ View Image](action://open-media-studio/${imageArtifact.id}) &nbsp;|&nbsp; ` +
+          `[Open in Media Studio](action://open-media-studio/${imageArtifact.id}) &nbsp;|&nbsp; ` +
+          `[Open in New Tab](${mediaUrl}) &nbsp;|&nbsp; ` +
+          `[Open File](/api/workspace/file?path=${encodeURIComponent(relFile)}&raw=true)\n\n` +
+          `*Asset saved to \`${relFile}\`*`;
 
         return {
           actionType: 'agent_task',
           answer: answerText,
           finalAnswer: answerText,
           intent: 'MEDIA_GEN',
+          openMediaStudio: true,
+          openArtifactId: imageArtifact.id,
+          openPreview: mediaUrl,
+          // CRITICAL: openFile is intentionally omitted so Monaco editor never loads the binary image
           artifact: imageArtifact,
           mediaInfo: {
             type: 'image',

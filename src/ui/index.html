@@ -1666,31 +1666,59 @@
       }
     }
 
-    // --- File Editor & Tabs ---
+    // --- Strict Text Whitelist Validator & Monaco Shield ---
+    function isTextFile(filePath) {
+      if (!filePath) return false;
+      const clean = filePath.split('?')[0].split('#')[0];
+      const ext = (clean.split('.').pop() || '').toLowerCase();
+      const textExtensions = new Set([
+        'js', 'mjs', 'cjs', 'ts', 'mts', 'cts', 'tsx', 'jsx',
+        'html', 'htm', 'css', 'scss', 'sass', 'less',
+        'py', 'json', 'json5', 'jsonc', 'md', 'markdown', 'txt', 'text',
+        'env', 'yml', 'yaml', 'xml', 'svg', 'sql',
+        'sh', 'bash', 'cmd', 'bat', 'ps1',
+        'ini', 'cfg', 'conf', 'toml',
+        'gitignore', 'gitattributes', 'dockerignore',
+        'vue', 'svelte', 'astro', 'php', 'rb', 'rs', 'go', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'swift', 'kt'
+      ]);
+      const base = clean.split(/[\/\\]/).pop().toLowerCase();
+      if (base === 'dockerfile' || base === 'license' || base === 'makefile' || base.startsWith('.env')) return true;
+      return textExtensions.has(ext);
+    }
+
+    // --- File Editor & Universal Artifact Viewer ---
     async function openFileInEditor(relPath) {
       document.getElementById('diff-editor-container').classList.add('hidden');
       document.getElementById('editor-empty-state').classList.add('hidden');
 
       const ext = (relPath.split('.').pop() || '').toLowerCase();
-      const binaryExts = ['zip', 'tar', 'gz', 'tgz', '7z', 'rar', 'pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'ico', 'exe', 'bin', 'mp3', 'mp4', 'mov', 'wav'];
-
       const binaryContainer = document.getElementById('binary-preview-container');
       const monacoContainer = document.getElementById('monaco-container');
+      const isText = isTextFile(relPath);
 
       let tab = state.openTabs.find(t => t.path === relPath);
       if (!tab) {
-        if (!binaryExts.includes(ext)) {
+        if (isText) {
           const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(relPath)}`);
-          if (!res.ok) return alert('Could not read file');
-          const data = await res.json();
-          tab = {
-            path: relPath,
-            name: relPath.split(/[\/\\]/).pop(),
-            content: data.content,
-            originalContent: data.content,
-            isDirty: false,
-          };
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            if (errData.isBinary) {
+              tab = { path: relPath, name: relPath.split(/[\/\\]/).pop(), content: '', originalContent: '', isDirty: false, isBinary: true };
+            } else {
+              return alert('Could not read file: ' + (errData.error || res.statusText));
+            }
+          } else {
+            const data = await res.json();
+            tab = {
+              path: relPath,
+              name: relPath.split(/[\/\\]/).pop(),
+              content: data.content,
+              originalContent: data.content,
+              isDirty: false,
+            };
+          }
         } else {
+          // STRICT MONACO SHIELD: Binary/media file -> never fetch text, never pass to Monaco!
           tab = {
             path: relPath,
             name: relPath.split(/[\/\\]/).pop(),
@@ -1706,7 +1734,8 @@
       state.activeTabPath = relPath;
       renderTabs();
 
-      if (binaryExts.includes(ext)) {
+      // IF BINARY/MEDIA: Divert immediately to Universal Artifact Viewer
+      if (!isText || tab.isBinary) {
         monacoContainer.classList.add('hidden');
         binaryContainer.classList.remove('hidden');
 
@@ -1716,101 +1745,169 @@
         const actionsEl = document.getElementById('binary-preview-actions');
 
         const fileName = relPath.split(/[\/\\]/).pop();
+        const ext = (relPath.split('.').pop() || '').toLowerCase();
         titleEl.textContent = fileName;
 
-        if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) {
+        // 1. VIDEO ARTIFACT VIEWER (HTML5 Player with Full Controls & Honest Specs)
+        if (['webm', 'mp4', 'mov', 'm4v', 'avi', 'mkv'].includes(ext)) {
+          iconEl.textContent = '🎬';
+          descEl.textContent = `Video Player (${ext.toUpperCase()})`;
+          actionsEl.innerHTML = `
+            <div class="flex flex-col items-center gap-3 w-full max-w-4xl">
+              <div class="w-full bg-[#050811] rounded-2xl border border-cyan-500/40 p-2 shadow-2xl">
+                <video id="artifact-video-player" controls preload="metadata" autoplay loop class="w-full rounded-xl bg-black max-h-[500px] object-contain shadow-inner">
+                  <source src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" type="video/${ext === 'mov' ? 'mp4' : ext}">
+                  Your browser does not support HTML5 video.
+                </video>
+              </div>
+              <div class="w-full bg-ide-surface/90 rounded-xl border border-ide-border p-3 text-xs flex flex-wrap items-center justify-between gap-3 shadow-md">
+                <div class="flex items-center gap-2 flex-wrap" id="video-spec-badges">
+                  <span class="px-2.5 py-1 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-mono font-semibold" id="video-badge-res">Resolution: detecting...</span>
+                  <span class="px-2.5 py-1 rounded bg-purple-950 border border-purple-500/40 text-purple-300 font-mono" id="video-badge-dur">Duration: detecting...</span>
+                  <span class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono">${ext.toUpperCase()}</span>
+                  <span class="px-2.5 py-1 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 font-mono" id="video-badge-hdr">HDR: checking</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <a href="/workspace-preview/${relPath}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition flex items-center gap-1.5">
+                    🔗 Open in New Tab
+                  </a>
+                  <button onclick="fetch('/api/workspace/open-system', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'${relPath}'})}).catch(()=>{});" class="px-3.5 py-1.5 rounded-lg bg-ide-panel hover:bg-ide-hover border border-ide-border text-slate-200 hover:text-white text-xs transition flex items-center gap-1.5">
+                    📂 Open File
+                  </button>
+                  <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-panel hover:bg-ide-hover border border-ide-border text-slate-200 hover:text-white text-xs transition flex items-center gap-1.5">
+                    ⬇️ Download Video
+                  </a>
+                  <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-xs">
+                    📋
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+
+          // Attach metadata inspection to the video element
+          setTimeout(() => {
+            const v = document.getElementById('artifact-video-player');
+            if (v) {
+              v.addEventListener('loadedmetadata', () => {
+                const resBadge = document.getElementById('video-badge-res');
+                const durBadge = document.getElementById('video-badge-dur');
+                const hdrBadge = document.getElementById('video-badge-hdr');
+                if (resBadge && v.videoWidth) {
+                  const is4k = v.videoWidth >= 3840 && v.videoHeight >= 2160;
+                  resBadge.textContent = is4k ? `${v.videoWidth} × ${v.videoHeight} (4K UHD)` : `${v.videoWidth} × ${v.videoHeight}`;
+                }
+                if (durBadge && v.duration) {
+                  durBadge.textContent = `${Math.round(v.duration * 10) / 10}s`;
+                }
+                if (hdrBadge) {
+                  hdrBadge.textContent = 'Standard SDR BT.709 (HDR unverified)';
+                }
+              });
+            }
+          }, 50);
+
+        // 2. IMAGE ARTIFACT VIEWER
+        } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext)) {
           iconEl.textContent = '🖼️';
           descEl.textContent = `Image Asset (${ext.toUpperCase()})`;
           actionsEl.innerHTML = `
-            <div class="flex flex-col items-center gap-3 w-full max-w-2xl">
-              <img src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="max-h-96 max-w-full rounded-xl border border-ide-border shadow-2xl object-contain bg-[#080b11]" />
+            <div class="flex flex-col items-center gap-3 w-full max-w-3xl">
+              <div class="p-3 bg-[#050811] rounded-2xl border border-cyan-500/40 shadow-2xl">
+                <img src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="max-h-[500px] max-w-full rounded-xl object-contain bg-black" />
+              </div>
               <div class="flex items-center gap-2">
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                <a href="/workspace-preview/${relPath}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition flex items-center gap-1.5">
+                  🔗 Open in New Tab
+                </a>
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-panel hover:bg-ide-hover border border-ide-border text-slate-200 hover:text-white text-xs transition flex items-center gap-1.5">
                   ⬇️ Download Image
                 </a>
-                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
+                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-xs">
                   📋 Copy Path
                 </button>
               </div>
             </div>
           `;
-        } else if (['zip', 'tar', 'gz', 'tgz', '7z', 'rar'].includes(ext)) {
-          iconEl.textContent = '📦';
-          descEl.textContent = `Archive File (${ext.toUpperCase()}). All files inside were extracted into the workspace root.`;
+
+        // 3. AUDIO ARTIFACT VIEWER
+        } else if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) {
+          iconEl.textContent = '🎵';
+          descEl.textContent = `Audio Player (${ext.toUpperCase()})`;
           actionsEl.innerHTML = `
-            <span class="px-3 py-1.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-xs text-cyan-300 font-mono">Archive Extracted into Workspace</span>
+            <div class="flex flex-col items-center gap-3 w-full max-w-md">
+              <audio controls autoplay src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="w-full"></audio>
+              <div class="flex items-center gap-2">
+                <a href="/workspace-preview/${relPath}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition">
+                  🔗 Open in New Tab
+                </a>
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3 py-1.5 rounded-lg bg-ide-panel hover:bg-ide-hover border border-ide-border text-slate-200 hover:text-white text-xs transition">
+                  ⬇️ Download Audio
+                </a>
+                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-xs">
+                  📋 Copy Path
+                </button>
+              </div>
+            </div>
           `;
+
+        // 4. PDF DOCUMENT VIEWER
         } else if (ext === 'pdf') {
           iconEl.textContent = '📄';
-          descEl.textContent = `Publication Vector PDF (${fileName})`;
+          descEl.textContent = `PDF Document (${fileName})`;
           actionsEl.innerHTML = `
             <div class="flex flex-col items-center gap-3 w-full max-w-4xl h-full">
               <iframe src="/workspace-preview/${relPath}" class="w-full h-[580px] rounded-xl border border-ide-border bg-white shadow-2xl"></iframe>
               <div class="flex items-center gap-2">
-                <a href="/workspace-preview/${relPath}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                <a href="/workspace-preview/${relPath}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition flex items-center gap-1.5">
                   🔍 Fullscreen PDF
                 </a>
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition flex items-center gap-1.5">
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-xs transition">
                   ⬇️ Download PDF
                 </a>
               </div>
             </div>
           `;
-        } else if (['docx', 'doc'].includes(ext)) {
-          iconEl.textContent = '📝';
-          descEl.textContent = `Word Document (${fileName}). Headings and paragraphs parsed for Agent tasks.`;
-          actionsEl.innerHTML = `
-            <div class="flex flex-col items-center gap-3">
-              <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
-                ⬇️ Download Word Document (${fileName})
-              </a>
-            </div>
-          `;
-        } else if (['xlsx', 'xls'].includes(ext)) {
-          iconEl.textContent = '📊';
-          descEl.textContent = 'Excel Spreadsheet. Sheets and tabular data parsed for Agent analysis.';
-          actionsEl.innerHTML = `
-            <span class="px-3 py-1.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-300 font-mono">Spreadsheet (${fileName})</span>
-          `;
+
+        // 5. PRESENTATION VIEWER
         } else if (['pptx', 'ppt'].includes(ext)) {
           iconEl.textContent = '📽️';
-          descEl.textContent = `Microsoft PowerPoint Slide Deck (${fileName})`;
+          descEl.textContent = `PowerPoint Slide Deck (${fileName})`;
           const htmlDeck = relPath.replace(/\.pptx$/i, '.html');
           actionsEl.innerHTML = `
             <div class="flex flex-col items-center gap-3 w-full max-w-4xl h-full">
               <iframe src="/workspace-preview/${htmlDeck}" class="w-full h-[580px] rounded-xl border border-ide-border bg-[#0a0e1a] shadow-2xl"></iframe>
               <div class="flex items-center gap-2">
-                <a href="/workspace-preview/${htmlDeck}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
+                <a href="/workspace-preview/${htmlDeck}" target="_blank" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition">
                   📽️ Fullscreen Slides
                 </a>
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition flex items-center gap-1.5">
-                  ⬇️ Download Raw PPTX
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 text-xs transition">
+                  ⬇️ Download PPTX
                 </a>
               </div>
             </div>
           `;
-        } else if (ext === 'csv') {
-          iconEl.textContent = '📈';
-          descEl.textContent = `Dataset File (${fileName})`;
+
+        // 6. CSV / SPREADSHEET VIEWER
+        } else if (['csv', 'xlsx', 'xls'].includes(ext)) {
+          iconEl.textContent = '📊';
+          descEl.textContent = `Dataset / Spreadsheet (${fileName})`;
           actionsEl.innerHTML = `
             <div class="flex flex-col items-center gap-3 w-full max-w-4xl">
               <div class="flex items-center gap-2 mb-2">
-                <button onclick="runSuggestedAction('Analyze this CSV and create a report with charts')" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow-md transition flex items-center gap-2">
-                  📊 Run Statistical Analysis & Charts
-                </button>
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-2 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
-                  ⬇️ Download CSV
+                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow transition">
+                  ⬇️ Download File
                 </a>
               </div>
               <div id="csv-table-mount" class="w-full max-h-96 overflow-auto bg-[#0a0e1a] rounded-xl border border-ide-border p-3 font-mono text-[11px] text-left text-slate-300">
-                Loading preview...
+                Loading dataset preview...
               </div>
             </div>
           `;
           fetch('/api/workspace/file?path=' + encodeURIComponent(relPath) + '&raw=true')
             .then(r => r.text())
             .then(txt => {
-              const lines = txt.trim().split(/\r?\n/).slice(0, 15);
+              const lines = txt.trim().split(/\r?\n/).slice(0, 20);
               const tableHtml = '<table class="w-full border-collapse">' +
                 lines.map((l, idx) => {
                   const cells = l.split(',').map(c => c.replace(/^"|"$/g, ''));
@@ -1821,48 +1918,26 @@
               const mount = document.getElementById('csv-table-mount');
               if (mount) mount.innerHTML = tableHtml;
             }).catch(() => {});
-        } else if (['mp4', 'webm', 'mov'].includes(ext)) {
-          iconEl.textContent = '🎬';
-          descEl.textContent = `High-Definition Video Player (${ext.toUpperCase()})`;
+
+        // 7. ARCHIVE VIEWER
+        } else if (['zip', 'tar', 'gz', 'tgz', '7z', 'rar'].includes(ext)) {
+          iconEl.textContent = '📦';
+          descEl.textContent = `Archive File (${ext.toUpperCase()})`;
           actionsEl.innerHTML = `
-            <div class="flex flex-col items-center gap-3 w-full max-w-3xl">
-              <video controls autoplay loop class="w-full rounded-xl border border-cyan-500/40 shadow-2xl bg-black max-h-[420px] object-contain">
-                <source src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" type="video/${ext === 'mov' ? 'mp4' : ext}">
-                Your browser does not support HTML5 video.
-              </video>
-              <div class="flex items-center gap-2">
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
-                  ⬇️ Download Video
-                </a>
-                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3.5 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
-                  📋 Copy Path
-                </button>
-                <button onclick="runSuggestedAction('Integrate ${relPath} into the web project index.html with a sleek modern design and video controls')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
-                  🚀 Embed in Web Project
-                </button>
-              </div>
-            </div>
-          `;
-        } else if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
-          iconEl.textContent = '🎵';
-          descEl.textContent = `Audio Asset Player (${ext.toUpperCase()})`;
-          actionsEl.innerHTML = `
-            <div class="flex flex-col items-center gap-3 w-full max-w-md">
-              <audio controls autoplay src="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" class="w-full"></audio>
-              <div class="flex items-center gap-2">
-                <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow-md transition flex items-center gap-1.5">
-                  ⬇️ Download Audio
-                </a>
-                <button onclick="navigator.clipboard.writeText('${relPath}'); alert('Path copied: ${relPath}');" class="px-3 py-1.5 rounded-lg bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition">
-                  📋 Copy Path
-                </button>
-              </div>
+            <div class="flex items-center gap-2">
+              <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition">
+                ⬇️ Download Archive (${fileName})
+              </a>
             </div>
           `;
         } else {
           iconEl.textContent = '💾';
           descEl.textContent = 'Binary file cannot be displayed as plain text in the code editor.';
-          actionsEl.innerHTML = '';
+          actionsEl.innerHTML = `
+            <a href="/api/workspace/file?path=${encodeURIComponent(relPath)}&raw=true" download="${fileName}" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs shadow transition">
+              ⬇️ Download File
+            </a>
+          `;
         }
         return;
       }
@@ -2345,8 +2420,13 @@
       try { fetchWorkspaceTree(); } catch {}
       try { refreshGit(); } catch {}
 
-      // Automatic Workbench UI Action Execution (only if requested)
-      if (outcome.openFile) {
+      // Automatic Workbench UI Action Execution
+      if (outcome.openMediaStudio || outcome.intent === 'MEDIA_GEN' || outcome.artifact?.type === 'VIDEO') {
+        const mediaPath = outcome.artifact?.relativePath || outcome.mediaInfo?.filePath;
+        if (mediaPath) {
+          openFileInEditor(mediaPath);
+        }
+      } else if (outcome.openFile && isTextFile(outcome.openFile)) {
         openFileInEditor(outcome.openFile);
       }
       const targetPreview = outcome.previewInfo?.previewUrl || outcome.openPreview;
@@ -2608,6 +2688,27 @@
                 .replace(/[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]/gi, '~/');
     }
 
+    // --- Artifact Action Handlers for Chat Links ---
+    async function playArtifactById(id) {
+      try {
+        const res = await fetch('/api/artifacts/' + encodeURIComponent(id));
+        if (!res.ok) return;
+        const art = await res.json();
+        if (art && art.relativePath) {
+          openFileInEditor(art.relativePath);
+          setTimeout(() => {
+            const player = document.getElementById('artifact-video-player');
+            if (player) player.play().catch(() => {});
+          }, 150);
+        }
+      } catch {}
+    }
+
+    async function openMediaStudioById(id) {
+      switchSidebar('artifacts');
+      playArtifactById(id);
+    }
+
     function formatMarkdownText(text) {
       if (!text) return '';
       if (isToolEnvelopeText(text)) {
@@ -2657,12 +2758,26 @@
         return `<div class="my-2.5"><img src="${cleanSrc}" alt="${alt}" class="max-h-80 max-w-full rounded-xl border border-cyan-500/40 shadow-xl object-contain bg-[#080b11]" /><div class="text-[11px] text-cyan-400 mt-1 font-mono">🖼️ ${alt || 'Generated Image Asset'}</div></div>`;
       });
 
-      // Markdown links: [label](open:path) or [label](url)
+      // Markdown links: [label](open:path), [label](action://...), or [label](url)
       escaped = escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
         const cleanHref = href.trim();
+        if (cleanHref.startsWith('action://play-artifact/')) {
+          const artId = cleanHref.replace('action://play-artifact/', '');
+          return `<button onclick="playArtifactById('${artId}')" class="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow transition inline-flex items-center gap-1 cursor-pointer">▶ ${label}</button>`;
+        }
+        if (cleanHref.startsWith('action://open-media-studio/')) {
+          const artId = cleanHref.replace('action://open-media-studio/', '');
+          return `<button onclick="openMediaStudioById('${artId}')" class="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs shadow transition inline-flex items-center gap-1 cursor-pointer">🎬 ${label}</button>`;
+        }
+        if (cleanHref.startsWith('/api/workspace/file') && cleanHref.includes('raw=true')) {
+          return `<a href="${cleanHref}" target="_blank" class="px-2 py-0.5 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-slate-300 hover:text-white text-xs transition inline-flex items-center gap-1">📂 ${label}</a>`;
+        }
+        if (cleanHref.startsWith('/workspace-preview/')) {
+          return `<a href="${cleanHref}" target="_blank" class="px-2 py-0.5 rounded bg-ide-surface hover:bg-ide-hover border border-ide-border text-cyan-400 hover:text-cyan-300 text-xs transition inline-flex items-center gap-1">🔗 ${label}</a>`;
+        }
         if (cleanHref.startsWith('open:') || /\.(html|js|ts|css|json|py|md|mp4|webm|mov|png|jpg|jpeg|webp|svg)$/i.test(cleanHref.split('?')[0])) {
           const filePath = cleanHref.replace(/^open:/, '').replace(/^file:\/\/\/?/, '');
-          return `<button onclick="openFileInEditor('${filePath}')" class="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline font-mono text-[11px]" title="Open ${filePath} in editor">📄 ${label}</button>`;
+          return `<button onclick="openFileInEditor('${filePath}')" class="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline font-mono text-[11px]" title="Open ${filePath}">📄 ${label}</button>`;
         }
         return `<a href="${cleanHref}" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">${label}</a>`;
       });

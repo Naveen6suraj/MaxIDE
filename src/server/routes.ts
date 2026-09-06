@@ -23,6 +23,53 @@ import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { PathManager } from '../config/PathManager.js';
 import { PreviewManager } from './preview/PreviewManager.js';
 import { VerificationEngine } from '../agent/verification/VerificationEngine.js';
+import { MediaInspector } from '../agent/tools/MediaInspector.js';
+
+// Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
+function streamFileWithRange(req: any, res: any, absPath: string): void {
+  if (!fs.existsSync(absPath)) {
+    res.status(404).json({ error: 'File not found' });
+    return;
+  }
+  const stat = fs.statSync(absPath);
+  const fileSize = stat.size;
+  const mimeType = MediaInspector.detectMimeType(absPath);
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': mimeType,
+      'Cache-Control': 'no-cache',
+    });
+
+    const fileStream = fs.createReadStream(absPath, { start, end });
+    fileStream.on('error', () => {
+      if (!res.headersSent) res.status(500).end();
+    });
+    fileStream.pipe(res);
+    return;
+  }
+
+  res.setHeader('Content-Type', mimeType);
+  res.setHeader('Content-Length', fileSize);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+  const stream = fs.createReadStream(absPath);
+  stream.on('error', () => {
+    if (!res.headersSent) res.status(500).end();
+  });
+  stream.pipe(res);
+}
 
 export function createApiRouter(
   providerRegistry: ProviderRegistry,
@@ -130,14 +177,26 @@ export function createApiRouter(
     try {
       const filePath = req.query.path as string;
       if (!filePath) return res.status(400).json({ error: 'Path parameter required' });
-      const isRaw = req.query.raw === 'true';
-      if (isRaw) {
-        const abs = agentEngine.workspaceManager.resolveSafePath(filePath);
-        if (!fs.existsSync(abs)) {
-          return res.status(404).json({ error: `File "${filePath}" not found` });
-        }
-        return res.sendFile(abs);
+      const abs = agentEngine.workspaceManager.resolveSafePath(filePath);
+      if (!fs.existsSync(abs)) {
+        return res.status(404).json({ error: `File "${filePath}" not found` });
       }
+
+      const isRaw = req.query.raw === 'true' || req.headers.range !== undefined;
+      if (isRaw) {
+        return streamFileWithRange(req, res, abs);
+      }
+
+      // Strict binary file protection: Never return binary data as text JSON for Monaco editor
+      if (MediaInspector.isBinary(abs)) {
+        return res.status(400).json({
+          error: 'Cannot open binary media as text',
+          isBinary: true,
+          path: filePath,
+          mimeType: MediaInspector.detectMimeType(abs),
+        });
+      }
+
       const content = agentEngine.workspaceManager.readFile(filePath);
       res.json({ path: filePath, content });
     } catch (err: any) {
@@ -1113,7 +1172,61 @@ export function createApiRouter(
     try {
       const art = agentEngine.artifactManager.getArtifact(req.params.id);
       if (!art) return res.status(404).json({ error: 'Artifact not found' });
+      if (req.query.raw === 'true' || req.headers.range !== undefined) {
+        return streamFileWithRange(req, res, art.filePath);
+      }
       res.json(art);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get(['/artifacts/:id/stream', '/artifacts/:id/raw'], (req, res) => {
+    try {
+      const art = agentEngine.artifactManager.getArtifact(req.params.id);
+      if (!art || !fs.existsSync(art.filePath)) return res.status(404).json({ error: 'Artifact not found' });
+      streamFileWithRange(req, res, art.filePath);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/artifacts/inspect/:id', async (req, res) => {
+    try {
+      const art = agentEngine.artifactManager.getArtifact(req.params.id);
+      if (!art || !fs.existsSync(art.filePath)) return res.status(404).json({ error: 'Artifact not found' });
+      if (art.type === 'VIDEO') {
+        const metadata = await MediaInspector.inspectVideo(art.filePath, {
+          resolution: art.metadata?.resolution,
+          durationSeconds: art.metadata?.durationSeconds,
+          fps: art.metadata?.fps,
+          hdr: art.metadata?.hdr !== undefined,
+        });
+        return res.json({ success: true, type: 'VIDEO', metadata });
+      } else if (art.type === 'IMAGE') {
+        const metadata = MediaInspector.inspectImage(art.filePath);
+        return res.json({ success: true, type: 'IMAGE', metadata });
+      } else if (art.type === 'AUDIO') {
+        const metadata = MediaInspector.inspectAudio(art.filePath);
+        return res.json({ success: true, type: 'AUDIO', metadata });
+      }
+      res.json({ success: true, type: art.type, metadata: art.metadata });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/workspace/open-system', (req, res) => {
+    try {
+      const filePath = req.body?.path;
+      if (!filePath) return res.status(400).json({ error: 'Path required' });
+      const abs = agentEngine.workspaceManager.resolveSafePath(filePath);
+      if (!fs.existsSync(abs)) return res.status(404).json({ error: 'File not found' });
+      import('child_process').then(cp => {
+        const cmd = process.platform === 'win32' ? `start "" "${abs}"` : process.platform === 'darwin' ? `open "${abs}"` : `xdg-open "${abs}"`;
+        cp.exec(cmd);
+        res.json({ success: true, opened: abs });
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
 import { ExecutableTool } from '../ToolDefinition.js';
+import { MediaInspector, VideoMetadata } from './MediaInspector.js';
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -34,6 +35,7 @@ export interface VideoGenerationOptions {
   durationSeconds?: number;
   resolution?: '4k' | '1080p' | '720p';
   fps?: number;
+  hdr?: boolean;
   apiKey?: string;
   workspaceRoot?: string;
 }
@@ -46,6 +48,11 @@ export interface VideoGenerationResult {
   resolution: string;
   format: string;
   prompt: string;
+  inspectedMetadata?: VideoMetadata;
+  resolutionSummary?: string;
+  fpsSummary?: string;
+  hdrSummary?: string;
+  discrepancies?: string[];
   error?: string;
 }
 
@@ -260,14 +267,27 @@ export class MediaTools {
           // Clean up temp directory
           try { fs.rmSync(tempRecDir, { recursive: true, force: true }); } catch {}
 
+          // Deep technical container and stream inspection
+          const inspected = await MediaInspector.inspectVideo(targetFile, {
+            resolution: options.resolution,
+            durationSeconds,
+            fps: options.fps || 60,
+            hdr: options.hdr,
+          });
+
           return {
             success: true,
             filePath: targetFile,
             relativeUrl,
-            durationSeconds,
-            resolution,
-            format: 'webm/mp4',
+            durationSeconds: inspected.durationSeconds,
+            resolution: `${inspected.width}x${inspected.height}`,
+            format: inspected.container,
             prompt: options.prompt,
+            inspectedMetadata: inspected,
+            resolutionSummary: inspected.resolutionSummary,
+            fpsSummary: inspected.fpsSummary,
+            hdrSummary: inspected.hdrSummary,
+            discrepancies: inspected.discrepancies,
           };
         }
       }

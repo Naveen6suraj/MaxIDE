@@ -117,7 +117,7 @@ async function runMediaBattery() {
     testEngine = new AgentEngine(gateway, testWorkspace);
 
     const outcome = await testEngine.processMessage('generate a sample 4k video of 5 seconds of super car');
-    if (outcome.intent === 'MEDIA_GEN' && outcome.mediaInfo?.filePath && outcome.finalAnswer?.includes('Video Generation Completed')) {
+    if (outcome.intent === 'MEDIA_GEN' && outcome.mediaInfo?.filePath && (outcome.finalAnswer?.includes('VIDEO READY') || outcome.finalAnswer?.includes('Video Generation Completed'))) {
       console.log('PASSED (Video created cleanly, confirmed completion without unsolicited popups)');
       passed++;
     } else {
@@ -132,7 +132,7 @@ async function runMediaBattery() {
   try {
     process.stdout.write('[Test 6] Conversational Request: "watch the video"... ');
     const outcome = await testEngine.processMessage('watch the video');
-    if (outcome.intent === 'MEDIA_GEN' && outcome.openFile && outcome.finalAnswer?.includes('<video')) {
+    if (outcome.intent === 'MEDIA_GEN' && (outcome.openMediaStudio || outcome.openFile) && outcome.finalAnswer?.includes('<video')) {
       console.log('PASSED (Delivered video player & opened media tab on user demand)');
       passed++;
     } else {

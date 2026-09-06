@@ -118,7 +118,7 @@ export class AgentOrchestrator {
         artifact: presResult.artifact,
         verification,
         openPreview: `/workspace-preview/${previewRel}`,
-        openFile: relFile,
+        openFile: previewRel,
         suggestedActions: [
           { label: '⬇️ Download PPTX', prompt: 'download presentation' },
           { label: '🔍 View Slides', prompt: 'open presentation' },
@@ -297,7 +297,7 @@ export class AgentOrchestrator {
         artifact: reportResult.pdfArtifact,
         verification: pdfVerif,
         openPreview: reportResult.relativeUrl,
-        openFile: relPdf,
+        openFile: relMd,
         suggestedActions: [
           { label: '⬇️ Download PDF', prompt: 'download pdf' },
           { label: '📄 Read Markdown', prompt: `open ${relMd}` },
@@ -347,7 +347,6 @@ export class AgentOrchestrator {
         artifact: audioResult.artifact,
         verification,
         openPreview: previewUrl,
-        openFile: relFile,
         suggestedActions: [
           { label: '⬇️ Download Audio', prompt: 'download audio' },
           { label: '🎵 Generate Another Track', prompt: 'generate background music' },
