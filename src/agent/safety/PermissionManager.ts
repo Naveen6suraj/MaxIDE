@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MaxIDE - Unlimited AI Provider Platform
  * 3-Tier Persistent Permission Manager
  * 
@@ -8,9 +8,9 @@
  * - TASK: Temporary single-session grants (allow_for_task)
  */
 
-import fs from 'fs';
 import path from 'path';
 import { PathManager } from '../../config/PathManager.js';
+import { AtomicStorage } from '../../storage/AtomicStorage.js';
 
 export interface ProjectPermissionGrants {
   filesystem: {
@@ -73,16 +73,17 @@ export class PermissionManager {
   }
 
   private load(): void {
-    if (fs.existsSync(this.permissionsFile)) {
-      try {
-        const raw = fs.readFileSync(this.permissionsFile, 'utf-8');
-        const obj = JSON.parse(raw);
+    try {
+      const obj = AtomicStorage.safeReadJsonSync<Record<string, ProjectPermissionGrants>>(this.permissionsFile, {});
+      if (obj && typeof obj === 'object') {
         for (const [projectId, grants] of Object.entries(obj)) {
-          this.projectGrants.set(projectId, grants as ProjectPermissionGrants);
+          if (grants && typeof grants === 'object') {
+            this.projectGrants.set(projectId, grants as ProjectPermissionGrants);
+          }
         }
-      } catch (err) {
-        console.warn('[PermissionManager] Could not read permissions file:', err);
       }
+    } catch (err) {
+      console.warn('[PermissionManager] Could not read permissions file:', err);
     }
   }
 
@@ -92,7 +93,7 @@ export class PermissionManager {
       for (const [projId, grants] of this.projectGrants) {
         obj[projId] = grants;
       }
-      fs.writeFileSync(this.permissionsFile, JSON.stringify(obj, null, 2), 'utf-8');
+      AtomicStorage.atomicWriteJsonSync(this.permissionsFile, obj);
     } catch (err) {
       console.warn('[PermissionManager] Could not save permissions file:', err);
     }

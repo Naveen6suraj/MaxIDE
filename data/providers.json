@@ -37,5 +37,35 @@
     "apiKey": "",
     "defaultModel": "nemotron",
     "isEnabled": false
+  },
+  {
+    "id": "openai-cloud",
+    "name": "OpenAI",
+    "type": "cloud",
+    "apiType": "openai",
+    "apiKey": "",
+    "defaultModel": "gpt-4o",
+    "isEnabled": true,
+    "baseUrl": "https://api.openai.com/v1"
+  },
+  {
+    "id": "anthropic-cloud",
+    "name": "Anthropic Claude",
+    "type": "cloud",
+    "apiType": "anthropic",
+    "apiKey": "",
+    "defaultModel": "claude-3-5-sonnet-20241022",
+    "isEnabled": true,
+    "baseUrl": "https://api.anthropic.com/v1"
+  },
+  {
+    "id": "lmstudio-local",
+    "name": "LM Studio Local (OpenAI-Compatible)",
+    "type": "local",
+    "apiType": "openai_compatible",
+    "baseUrl": "http://localhost:1234/v1",
+    "apiKey": "",
+    "defaultModel": "local-model",
+    "isEnabled": false
   }
 ]

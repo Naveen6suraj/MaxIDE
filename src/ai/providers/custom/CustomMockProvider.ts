@@ -176,10 +176,18 @@ export class CustomMockProvider extends BaseProvider {
     // Default intelligent tool calling behavior for test requests
     const userPrompt = request.messages.find(m => m.role === 'user')?.content.toLowerCase() || '';
 
-    if (userPrompt.includes('file') || userPrompt.includes('create') || userPrompt.includes('write')) {
+    if (userPrompt.includes('file') || userPrompt.includes('create') || userPrompt.includes('write') || userPrompt.includes('build')) {
+      const match = userPrompt.match(/([a-zA-Z0-9_\-.]+\.(?:js|ts|html|css|py|txt|json))/i);
+      const targetPath = match ? match[1] : (userPrompt.includes('game') ? 'index.html' : 'hello.js');
+      const sampleCode = targetPath.endsWith('.js')
+        ? 'export function hello() { return "Hello from MaxIDE"; }'
+        : targetPath.endsWith('.html')
+        ? '<!DOCTYPE html><html><head><title>MaxIDE App</title></head><body><h1>MaxIDE App</h1></body></html>'
+        : 'Task completed by MaxIDE AI Gateway.\nProvider: ' + this.name;
+
       yield {
         type: 'token',
-        content: 'I will write the required file to the workspace.\n',
+        content: `I will write ${targetPath} to the workspace.\n`,
       };
       yield {
         type: 'tool_call',
@@ -187,8 +195,8 @@ export class CustomMockProvider extends BaseProvider {
           id: `call_${Date.now()}_write`,
           name: 'writeFile',
           arguments: {
-            path: 'output.txt',
-            content: 'Task completed by MaxIDE AI Gateway.\nProvider: ' + this.name,
+            path: targetPath,
+            content: sampleCode,
           },
         },
       };

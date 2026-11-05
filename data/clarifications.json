@@ -1,0 +1,109 @@
+{
+  "test-clarify-conv": {
+    "timestamp": "2026-11-05T17:19:10.363Z",
+    "originalPrompt": "build an app",
+    "questions": [
+      {
+        "id": "app_type",
+        "question": "What kind of application would you like to build?",
+        "options": [
+          "A modern website or landing page",
+          "A web application with interactive features",
+          "A simple messenger or chat demo",
+          "An interactive arcade game",
+          "Not sure — recommend a popular project"
+        ],
+        "recommendedOption": "A web application with interactive features"
+      },
+      {
+        "id": "app_platform",
+        "question": "Where would you like it to run?",
+        "options": [
+          "Web browser",
+          "Desktop window",
+          "Not sure — choose for me"
+        ],
+        "recommendedOption": "Web browser"
+      }
+    ],
+    "answers": {}
+  },
+  "session-t2": {
+    "timestamp": "2026-11-05T17:39:56.445Z",
+    "originalPrompt": "Build an app",
+    "questions": [
+      {
+        "id": "app_type",
+        "question": "What kind of application would you like to build?",
+        "options": [
+          "A modern website or landing page",
+          "A web application with interactive features",
+          "A simple messenger or chat demo",
+          "An interactive arcade game",
+          "Not sure — recommend a popular project"
+        ],
+        "recommendedOption": "A web application with interactive features"
+      },
+      {
+        "id": "app_platform",
+        "question": "Where would you like it to run?",
+        "options": [
+          "Web browser",
+          "Desktop window",
+          "Not sure — choose for me"
+        ],
+        "recommendedOption": "Web browser"
+      }
+    ],
+    "answers": {}
+  },
+  "session-t7": {
+    "timestamp": "2026-11-05T17:39:57.549Z",
+    "originalPrompt": "I don't know how to build a website, help me",
+    "questions": [
+      {
+        "id": "beginner_website_type",
+        "question": "I would be happy to build your website for you! What kind of website do you need?",
+        "options": [
+          "A modern personal portfolio to showcase projects and skills",
+          "A clean business landing page with services and contact details",
+          "A creative blog or news layout",
+          "Not sure — build a clean portfolio starter for me"
+        ],
+        "recommendedOption": "A modern personal portfolio to showcase projects and skills"
+      }
+    ],
+    "answers": {}
+  },
+  "session-test-2": {
+    "timestamp": "2026-11-05T17:43:14.778Z",
+    "originalPrompt": "Build an app",
+    "questions": [
+      {
+        "id": "app_type",
+        "question": "What kind of application would you like to build?",
+        "options": [
+          "A modern website or landing page",
+          "A web application with interactive features",
+          "A simple messenger or chat demo",
+          "An interactive arcade game",
+          "Not sure — recommend a popular project"
+        ],
+        "recommendedOption": "A web application with interactive features"
+      },
+      {
+        "id": "app_platform",
+        "question": "Where would you like it to run?",
+        "options": [
+          "Web browser",
+          "Desktop window",
+          "Not sure — choose for me"
+        ],
+        "recommendedOption": "Web browser"
+      }
+    ],
+    "answers": {}
+  },
+  "_schemaVersion": 1,
+  "_savedAt": "2026-11-05T17:43:14.778Z"
+}

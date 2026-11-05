@@ -24,34 +24,78 @@ export class PathManager {
   public readonly userDataDir: string;
   public readonly agentDataDir: string;
 
+  private resolveDir(envVar: string | undefined, systemPath: string, localFallback: string): string {
+    if (envVar) {
+      const resolved = path.resolve(envVar);
+      try {
+        if (!fs.existsSync(resolved)) {
+          fs.mkdirSync(resolved, { recursive: true });
+        }
+      } catch {}
+      return resolved;
+    }
+
+    try {
+      if (!fs.existsSync(systemPath)) {
+        fs.mkdirSync(systemPath, { recursive: true });
+      }
+      const probe = path.join(systemPath, `.probe_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+      fs.writeFileSync(probe, 'probe', 'utf8');
+      fs.unlinkSync(probe);
+      return systemPath;
+    } catch {
+      try {
+        if (!fs.existsSync(localFallback)) {
+          fs.mkdirSync(localFallback, { recursive: true });
+        }
+        return localFallback;
+      } catch {
+        const tmp = path.join(os.tmpdir(), 'MaxIDE');
+        try {
+          if (!fs.existsSync(tmp)) fs.mkdirSync(tmp, { recursive: true });
+        } catch {}
+        return tmp;
+      }
+    }
+  }
+
   private constructor() {
     this.appDir = path.resolve(__dirname, '../../');
 
-    // User Data Directory (%APPDATA%/MaxIDE on Windows, ~/.maxide on Linux/macOS)
-    if (process.env.MAXIDE_DATA_DIR) {
-      this.userDataDir = path.resolve(process.env.MAXIDE_DATA_DIR);
-    } else if (process.platform === 'win32') {
-      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-      this.userDataDir = path.join(appData, 'MaxIDE');
-    } else {
-      this.userDataDir = path.join(os.homedir(), '.maxide');
-    }
+    const defaultUserData = process.platform === 'win32'
+      ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'MaxIDE')
+      : path.join(os.homedir(), '.maxide');
 
-    // Agent Data Directory (%LOCALAPPDATA%/MaxIDE on Windows, ~/.cache/maxide on Linux/macOS)
-    if (process.env.MAXIDE_AGENT_DIR) {
-      this.agentDataDir = path.resolve(process.env.MAXIDE_AGENT_DIR);
-    } else if (process.platform === 'win32') {
-      const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-      this.agentDataDir = path.join(localAppData, 'MaxIDE');
-    } else {
-      this.agentDataDir = path.join(os.homedir(), '.cache', 'maxide');
-    }
+    const defaultAgentData = process.platform === 'win32'
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'MaxIDE')
+      : path.join(os.homedir(), '.cache', 'maxide');
+
+    this.userDataDir = this.resolveDir(
+      process.env.MAXIDE_DATA_DIR,
+      defaultUserData,
+      path.resolve(this.appDir, 'data')
+    );
+
+    this.agentDataDir = this.resolveDir(
+      process.env.MAXIDE_AGENT_DIR,
+      defaultAgentData,
+      path.resolve(this.appDir, '.agent_data')
+    );
 
     this.ensureDirectories();
   }
 
+  public static resetInstance(): void {
+    PathManager.instance = new PathManager();
+  }
+
   public static getInstance(): PathManager {
     if (!PathManager.instance) {
+      PathManager.instance = new PathManager();
+    } else if (
+      (process.env.MAXIDE_DATA_DIR && PathManager.instance.userDataDir !== path.resolve(process.env.MAXIDE_DATA_DIR)) ||
+      (process.env.MAXIDE_AGENT_DIR && PathManager.instance.agentDataDir !== path.resolve(process.env.MAXIDE_AGENT_DIR))
+    ) {
       PathManager.instance = new PathManager();
     }
     return PathManager.instance;

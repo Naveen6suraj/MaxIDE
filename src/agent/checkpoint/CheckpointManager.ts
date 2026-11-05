@@ -89,7 +89,15 @@ export class CheckpointManager {
     const pathMgr = PathManager.getInstance();
     this.storageDir = customStorageDir || pathMgr.getCheckpointsDir();
     if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
+      try {
+        fs.mkdirSync(this.storageDir, { recursive: true });
+      } catch {
+        const fallback = path.join(this.workspaceRoot, '.maxide_checkpoints');
+        try {
+          if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+          this.storageDir = fallback;
+        } catch {}
+      }
     }
     this.indexFile = path.join(this.storageDir, 'checkpoints_index.json');
     this.loadIndex();

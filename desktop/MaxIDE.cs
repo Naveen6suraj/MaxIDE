@@ -97,7 +97,33 @@ namespace MaxIDE.Desktop
                 if (File.Exists(parentRuntimeNode)) return parentRuntimeNode;
             }
 
-            // 4. Check system PATH
+            // 4. Check known Windows installation directories (LocalAppData Programs and ProgramFiles)
+            try
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrEmpty(localAppData))
+                {
+                    string userNode = Path.Combine(localAppData, "Programs", "NodeJS", "node.exe");
+                    if (File.Exists(userNode)) return userNode;
+                }
+
+                string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                if (!string.IsNullOrEmpty(progFiles))
+                {
+                    string pfNode = Path.Combine(progFiles, "nodejs", "node.exe");
+                    if (File.Exists(pfNode)) return pfNode;
+                }
+
+                string pfX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+                if (!string.IsNullOrEmpty(pfX86))
+                {
+                    string pfxNode = Path.Combine(pfX86, "nodejs", "node.exe");
+                    if (File.Exists(pfxNode)) return pfxNode;
+                }
+            }
+            catch {}
+
+            // 5. Check system PATH
             string pathEnv = Environment.GetEnvironmentVariable("PATH");
             if (pathEnv != null)
             {

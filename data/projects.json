@@ -1,0 +1,23 @@
+[
+  {
+    "id": "proj-default",
+    "name": "Default Project",
+    "folders": [
+      "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\data\\workspace"
+    ],
+    "activeWorkspace": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\data\\workspace",
+    "projectPath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\data\\workspace",
+    "providerId": "ollama",
+    "modelId": "auto",
+    "activeModel": "auto",
+    "autonomyMode": "AUTONOMOUS",
+    "gitWorktreeMode": "LOCAL",
+    "createdAt": "2026-11-05T17:40:25.655Z",
+    "lastOpened": "2026-11-05T17:40:25.655Z",
+    "lastActivityDate": "2026-11-05T17:40:25.655Z",
+    "conversations": [],
+    "recentFiles": [],
+    "artifacts": [],
+    "settings": {}
+  }
+]
