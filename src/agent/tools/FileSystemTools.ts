@@ -6,45 +6,11 @@
 import fs from 'fs';
 import path from 'path';
 import { ExecutableTool } from '../ToolDefinition.js';
+import { WorkspaceManager } from '../../workspace/WorkspaceManager.js';
+import { InspectionTracker } from '../safety/InspectionTracker.js';
 
 function resolveSafeToolPath(workspaceRoot: string, relPath: string): string {
-  if (!relPath || typeof relPath !== 'string') {
-    throw new Error('Invalid path: path must be a non-empty string.');
-  }
-  if (relPath.includes('\0')) {
-    throw new Error('Security Violation: Null bytes detected in path.');
-  }
-  let decoded = relPath;
-  try {
-    decoded = decodeURIComponent(relPath);
-  } catch {}
-
-  if (/^[\\\/]{2}/.test(decoded) || /^[\\\/]\?[\\\/]|^[\\\/]\.[\\\/]/.test(decoded)) {
-    throw new Error(`Security Violation: UNC or device paths are not permitted: "${relPath}"`);
-  }
-
-  const normalizedRoot = path.normalize(workspaceRoot);
-  const rootLower = normalizedRoot.toLowerCase();
-  const rootWithSep = rootLower.endsWith(path.sep) ? rootLower : rootLower + path.sep;
-
-  if (/^[a-zA-Z]:[/\\]/.test(decoded)) {
-    const normalizedDrive = path.normalize(decoded);
-    const driveLower = normalizedDrive.toLowerCase();
-    if (driveLower !== rootLower && !driveLower.startsWith(rootWithSep)) {
-      throw new Error(`Security Violation: Absolute path "${relPath}" escapes workspace boundary.`);
-    }
-    return normalizedDrive;
-  }
-
-  const abs = path.resolve(workspaceRoot, decoded);
-  const normalizedAbs = path.normalize(abs);
-  const absLower = normalizedAbs.toLowerCase();
-
-  if (absLower !== rootLower && !absLower.startsWith(rootWithSep)) {
-    throw new Error(`Security Violation: Path "${relPath}" attempts to escape workspace root.`);
-  }
-
-  return normalizedAbs;
+  return WorkspaceManager.resolveSafePathForRoot(workspaceRoot, relPath);
 }
 
 export function createFileSystemTools(workspaceRoot: string): ExecutableTool[] {
@@ -72,6 +38,7 @@ export function createFileSystemTools(workspaceRoot: string): ExecutableTool[] {
             return { error: `Path is a directory, not a file: ${args.path}. Use listFiles instead.` };
           }
           const content = fs.readFileSync(fullPath, 'utf8');
+          InspectionTracker.getInstance().recordInspection('global-default-session', workspaceRoot, args.path);
           return { path: args.path, content };
         } catch (err: any) {
           return { error: err.message };
@@ -103,6 +70,16 @@ export function createFileSystemTools(workspaceRoot: string): ExecutableTool[] {
               content = '';
             }
           }
+          if (!filePath) {
+            return { error: 'Path is required to write a file', success: false };
+          }
+          if (content === undefined || content === null) {
+            return { error: 'Content is required to write a file', success: false };
+          }
+          const preCheck = InspectionTracker.getInstance().validatePreEdit('global-default-session', workspaceRoot, filePath);
+          if (!preCheck.allowed) {
+            return { error: preCheck.message || 'Pre-edit inspection required', success: false };
+          }
           const fullPath = resolveSafeToolPath(workspaceRoot, filePath);
           if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
             return { error: `Cannot write file: path is a directory (${filePath})` };
@@ -112,6 +89,7 @@ export function createFileSystemTools(workspaceRoot: string): ExecutableTool[] {
             fs.mkdirSync(dir, { recursive: true });
           }
           fs.writeFileSync(fullPath, String(content), 'utf8');
+          InspectionTracker.getInstance().recordInspection('global-default-session', workspaceRoot, filePath);
           return { path: filePath, success: true, bytesWritten: Buffer.byteLength(String(content)) };
         } catch (err: any) {
           return { error: err.message, success: false };

@@ -46,6 +46,18 @@ import { createArchiveTools } from './tools/ArchiveTools.js';
 import { createFileSystemTools } from './tools/FileSystemTools.js';
 import { AgentOrchestrator } from './orchestrator/AgentOrchestrator.js';
 import { VerificationEngine } from './verification/VerificationEngine.js';
+import { ClosedLoopTestEngine } from './verification/ClosedLoopTestEngine.js';
+
+export type TaskLifecycleState = 'IDLE' | 'PLANNING' | 'INSPECTING' | 'EXECUTING' | 'TESTING' | 'DIAGNOSING' | 'REPAIRING' | 'COMPLETED' | 'FAILED';
+
+export interface TaskExecutionEvidence {
+  inspectedFiles: string[];
+  modifiedFiles: string[];
+  commandsExecuted: string[];
+  testsRun: number;
+  testsPassed: number;
+  diagnostics: string[];
+}
 
 export type AutonomyMode = 'ASK' | 'ASSIST' | 'AGENT' | 'AUTONOMOUS';
 
@@ -131,6 +143,16 @@ export class AgentEngine {
   public readonly capabilityPlanner: CapabilityPlanner;
   public readonly taskManager: TaskManager;
   public readonly jobManager: BackgroundJobManager;
+  public readonly testEngine: ClosedLoopTestEngine;
+  private currentLifecycleState: TaskLifecycleState = 'IDLE';
+  private currentEvidence: TaskExecutionEvidence = {
+    inspectedFiles: [],
+    modifiedFiles: [],
+    commandsExecuted: [],
+    testsRun: 0,
+    testsPassed: 0,
+    diagnostics: [],
+  };
   public recoveryManager?: RecoveryManager;
   public conversationStore?: ConversationStore;
 
@@ -156,6 +178,7 @@ export class AgentEngine {
     this.capabilityPlanner = new CapabilityPlanner(this.capabilityRegistry);
     this.taskManager = new TaskManager(workspaceRoot);
     this.jobManager = new BackgroundJobManager(workspaceRoot);
+    this.testEngine = new ClosedLoopTestEngine(workspaceRoot, this.safeTerminal, this.checkpointManager);
     this.orchestrator = new AgentOrchestrator(
       workspaceRoot,
       this.artifactManager,
@@ -207,6 +230,7 @@ export class AgentEngine {
     this.orchestrator.setWorkspaceRoot(newRoot);
     this.taskManager.setWorkspaceRoot(newRoot);
     this.jobManager.setWorkspaceRoot(newRoot);
+    this.testEngine.setWorkspaceRoot(newRoot);
   }
 
   public setRecoveryManager(rm: RecoveryManager): void {
@@ -215,6 +239,19 @@ export class AgentEngine {
 
   public setConversationStore(cs: ConversationStore): void {
     this.conversationStore = cs;
+  }
+
+  public getLifecycleState(): TaskLifecycleState {
+    return this.currentLifecycleState;
+  }
+
+  public setLifecycleState(state: TaskLifecycleState): void {
+    this.currentLifecycleState = state;
+    this.logActivity('thought', `[Lifecycle: ${state}]`);
+  }
+
+  public getExecutionEvidence(): TaskExecutionEvidence {
+    return { ...this.currentEvidence };
   }
 
   public setAutonomyMode(mode: AutonomyMode): void {
@@ -439,6 +476,15 @@ export class AgentEngine {
 
     // 2. Initialize Live Plan
     this.initializePlan(taskPrompt);
+    this.setLifecycleState('PLANNING');
+    this.currentEvidence = {
+      inspectedFiles: [],
+      modifiedFiles: [],
+      commandsExecuted: [],
+      testsRun: 0,
+      testsPassed: 0,
+      diagnostics: [],
+    };
     this.logActivity('thought', 'Planning...');
 
     // 3. Index codebase for context
@@ -504,49 +550,16 @@ export class AgentEngine {
           finishReason = event.reason;
         } else if (event.type === 'error') {
           this.logActivity('error', `Generation error: ${event.error}`);
-          const lowerTask = taskPrompt.toLowerCase();
-          const executionKeywords = ['build', 'create', 'make', 'implement', 'write', 'code', 'generate', 'game', 'messenger', 'app', 'site', 'website', 'counter', 'calculator', 'component'];
-          const isExecution = executionKeywords.some(kw => new RegExp(`\\b${kw}\\b`, 'i').test(lowerTask));
-
-          if (isExecution) {
-            this.logActivity('recovery', `[Self-Healing Recovery] Autonomously synthesizing verified files for "${taskPrompt.slice(0, 35)}"...`);
-            const synthesized = this.synthesizeActionsForPrompt(taskPrompt);
-            for (const sc of synthesized) {
-              this.logActivity('tool_start', `Tool: ${sc.name}`, sc.arguments);
-              await this.toolRegistry.execute(sc.name, sc.arguments, {
-                model: this.gateway.modelRegistry.getModel(modelId || ''),
-              });
-              this.logActivity('tool_end', `Tool ${sc.name} completed`);
-            }
-            this.advancePlan(2, 'completed');
-            this.advancePlan(3, 'completed');
-            this.advancePlan(4, 'completed');
-            this.advancePlan(5, 'completed');
-
-            const rootPath = this.workspaceManager.getRootPath();
-            const hasIndex = fs.existsSync(path.join(rootPath, 'index.html'));
-            return {
-              success: true,
-              task: taskPrompt,
-              totalSteps: currentStep,
-              finalAnswer: `Created application for **"${taskPrompt}"** using autonomous engineering engine.`,
-              steps,
-              plan: this.currentPlan,
-              activityTimeline: this.timeline,
-              openFile: hasIndex ? 'index.html' : undefined,
-              openPreview: hasIndex ? '/workspace-preview/index.html' : undefined,
-            };
-          }
-
+          this.setLifecycleState('FAILED');
           return {
             success: false,
             task: taskPrompt,
             totalSteps: currentStep,
-            finalAnswer: stepThought,
+            finalAnswer: `Task failed: AI provider error (${event.error}). Workspace preserved without modification. Please verify your AI provider credentials and connectivity.`,
             steps,
             plan: this.currentPlan,
             activityTimeline: this.timeline,
-            error: event.error,
+            error: `PROVIDER_UNAVAILABLE: ${event.error}`,
           };
         }
       }
@@ -565,11 +578,7 @@ export class AgentEngine {
 
       // If still no tool calls, but stepThought contains an internal tool-call JSON envelope:
       if (currentToolCalls.length === 0 && ContentSanitizer.isToolEnvelope(stepThought)) {
-        this.logActivity('recovery', `[Tool Envelope Intercepted] Model emitted raw JSON tool envelope in text. Executing registered tools...`);
-        const synthesized = this.synthesizeActionsForPrompt(taskPrompt);
-        if (synthesized.length > 0) {
-          currentToolCalls.push(...synthesized);
-        }
+        this.logActivity('thought', `[Tool Envelope Observed] Model emitted JSON envelope in thought stream.`);
       }
 
       // If still no tool calls, task has concluded
@@ -639,20 +648,20 @@ export class AgentEngine {
             tc.name.toLowerCase().endsWith('_game') ||
             tc.name.toLowerCase().endsWith('_website');
 
-          // Intelligent Self-Healing: If model attempts a composite hallucinated tool or repeatedly fails
+          // Steer model to registered tools when hallucinated composite or repeated failure occurs
           if (isHallucinatedComposite || attempts >= 2) {
-            this.logActivity('recovery', `[Self-Healing Recovery] Autonomously executing registered tools for "${taskPrompt.slice(0, 35)}"...`);
-            const synthesized = this.synthesizeActionsForPrompt(taskPrompt);
-            currentToolCalls.length = 0;
-            currentToolCalls.push(...synthesized);
-            for (const sc of synthesized) {
-              this.logActivity('tool_start', `Tool: ${sc.name}`, sc.arguments);
-              const res = await this.toolRegistry.execute(sc.name, sc.arguments, {
-                model: this.gateway.modelRegistry.getModel(modelId || ''),
-              });
-              toolResults.push({ name: sc.name, result: res.result || res.error });
-              this.logActivity('tool_end', `Tool ${sc.name} completed`, res.result);
-            }
+            this.logActivity('recovery', `[Steering Model] Unregistered tool "${tc.name}". Steering to registered tools (create_file, edit_file, read_file, run_command).`);
+            messages.push({
+              role: 'tool',
+              name: tc.name,
+              toolCallId: tc.id,
+              content: JSON.stringify({
+                status: 'error',
+                failureType: 'TOOL_NOT_REGISTERED',
+                error: `Tool "${tc.name}" is not registered. You must ONLY call registered tools: create_file, edit_file, read_file, list_files, run_command.`,
+                availableTools: this.toolRegistry.getDefinitions().map(d => d.name),
+              }),
+            });
             consecutiveErrors = 0;
             break;
           }
@@ -747,6 +756,19 @@ export class AgentEngine {
           }
         } else {
           consecutiveErrors = 0; // Reset error streak on success
+          if (['read_file', 'readFile'].includes(tc.name)) {
+            const p = (tc.arguments as any)?.path;
+            if (p) this.currentEvidence.inspectedFiles.push(p);
+            this.setLifecycleState('INSPECTING');
+          } else if (['create_file', 'edit_file', 'writeFile', 'patch_file', 'createFile', 'editFile'].includes(tc.name)) {
+            const p = (tc.arguments as any)?.path || (tc.arguments as any)?.file;
+            if (p) this.currentEvidence.modifiedFiles.push(p);
+            this.setLifecycleState('EXECUTING');
+          } else if (['run_command', 'execute_command', 'executeCommand'].includes(tc.name)) {
+            const c = (tc.arguments as any)?.command;
+            if (c) this.currentEvidence.commandsExecuted.push(c);
+            this.setLifecycleState('EXECUTING');
+          }
           this.logActivity('tool_end', `Tool ${tc.name} completed`, execResult.result);
         }
 
@@ -854,8 +876,14 @@ export class AgentEngine {
     }
 
     // Task Completion Physical Verification:
-    const filesTouched = steps.flatMap(s => (s.toolCalls || []).filter(tc => ['create_file', 'edit_file', 'patch_file'].includes(tc.name)).map(tc => (tc.arguments as any)?.path).filter(Boolean));
-    const commandsRun = steps.flatMap(s => (s.toolCalls || []).filter(tc => tc.name === 'run_command').map(tc => (tc.arguments as any)?.command).filter(Boolean));
+    const filesTouched = Array.from(new Set([
+      ...this.currentEvidence.modifiedFiles,
+      ...steps.flatMap(s => (s.toolCalls || []).filter(tc => ['create_file', 'edit_file', 'patch_file', 'writeFile', 'createFile', 'editFile'].includes(tc.name)).map(tc => (tc.arguments as any)?.path || (tc.arguments as any)?.file).filter(Boolean)),
+    ]));
+    const commandsRun = Array.from(new Set([
+      ...this.currentEvidence.commandsExecuted,
+      ...steps.flatMap(s => (s.toolCalls || []).filter(tc => ['run_command', 'execute_command', 'executeCommand'].includes(tc.name)).map(tc => (tc.arguments as any)?.command).filter(Boolean)),
+    ]));
 
     const executionKeywords = ['build', 'create', 'make', 'implement', 'write', 'code', 'generate', 'game', 'messenger', 'app', 'site', 'website'];
     const isExecutionTask = executionKeywords.some(kw => new RegExp(`\\b${kw}\\b`, 'i').test(lowerTask));
@@ -876,27 +904,30 @@ export class AgentEngine {
       }
     }
 
-    // If an execution task was supposed to create files, but none exist, trigger self-healing synthesis before concluding:
-    if (isExecutionTask && !physicalFilesExist && commandsRun.length === 0) {
-      this.logActivity('recovery', `[Self-Healing Verification] Autonomously synthesizing verified files for "${taskPrompt.slice(0, 35)}"...`);
-      const synthesized = this.synthesizeActionsForPrompt(taskPrompt);
-      for (const sc of synthesized) {
-        await this.toolRegistry.execute(sc.name, sc.arguments, {
-          model: this.gateway.modelRegistry.getModel(modelId || ''),
-        });
-        if (sc.name === 'create_file') {
-          const p = (sc.arguments as any)?.path;
-          if (p) filesTouched.push(p);
-        }
-      }
-      if (fs.existsSync(path.join(rootPath, 'index.html'))) {
-        physicalFilesExist = true;
-        if (!detectedOpenFile) detectedOpenFile = 'index.html';
-        if (!detectedOpenPreview) detectedOpenPreview = '/workspace-preview/index.html';
+    // Closed-Loop Verification: Automatically discover and execute project test suite
+    const disc = this.testEngine.discoverTests();
+    if (disc.hasTests && isExecutionTask && (this.currentEvidence.modifiedFiles.length > 0 || physicalFilesExist)) {
+      this.setLifecycleState('TESTING');
+      this.logActivity('thought', `[Closed-Loop Verification] Discovered automated tests: "${disc.testCommand}". Running verification suite...`);
+      const testRes = await this.testEngine.runTests(disc.testCommand);
+      this.currentEvidence.testsRun++;
+      if (testRes.passed) {
+        this.currentEvidence.testsPassed++;
+        this.logActivity('thought', `[Closed-Loop Verification] Automated test suite passed successfully (0 errors).`);
+      } else {
+        this.currentEvidence.diagnostics.push(...testRes.parsedFailures);
+        this.logActivity('error', `[Closed-Loop Verification Failed] Tests failed: ${testRes.parsedFailures.slice(0, 3).join('; ')}`);
       }
     }
 
-    const taskActuallySucceeded = physicalFilesExist || commandsRun.length > 0 || !isExecutionTask;
+    const testsFailed = this.currentEvidence.testsRun > 0 && this.currentEvidence.testsPassed === 0;
+    const taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
+
+    if (taskActuallySucceeded) {
+      this.setLifecycleState('COMPLETED');
+    } else {
+      this.setLifecycleState('FAILED');
+    }
 
     if (!finalAnswer || finalAnswer.trim() === 'Task completed successfully.' || ContentSanitizer.isToolEnvelope(finalAnswer)) {
       if (taskActuallySucceeded) {
@@ -951,10 +982,7 @@ export class AgentEngine {
         const candidateName = parsed.tool || parsed.name;
         if (candidateName) {
           // If the model tried to call a hallucinated composite tool in JSON block, synthesize real tools immediately!
-          if (candidateName.startsWith('build_') || candidateName.startsWith('create_') || candidateName.startsWith('make_') || candidateName.endsWith('_app') || candidateName.endsWith('_game')) {
-            const synthesized = this.synthesizeActionsForPrompt(taskPrompt);
-            return synthesized;
-          }
+          // Pass candidateName directly to tool execution boundary
           calls.push({
             id: `call-json-${Date.now()}-${calls.length}`,
             name: candidateName,
@@ -1123,478 +1151,15 @@ export class AgentEngine {
    * Autonomous self-healing action synthesizer when small local models
    * are persistently trapped in hallucinated tool name loops.
    */
-  private synthesizeActionsForPrompt(taskPrompt: string): ToolCall[] {
-    const lower = taskPrompt.toLowerCase();
-    const calls: ToolCall[] = [];
-
-    if (lower.includes('game') || lower.includes('play') || lower.includes('snake') || lower.includes('arcade')) {
-      const snakeHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arcade Snake Game - MaxIDE</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: #0b0f19; color: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-    .arcade-cabinet { background: #161f30; border: 2px solid #22d3ee; border-radius: 20px; padding: 24px; box-shadow: 0 0 35px rgba(34, 211, 238, 0.25); text-align: center; max-width: 440px; width: 100%; }
-    h1 { font-size: 1.8rem; color: #38bdf8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 2px; }
-    p.sub { font-size: 0.85rem; color: #94a3b8; margin-bottom: 16px; }
-    .score-board { display: flex; justify-content: space-around; background: #0b0f19; border: 1px solid #334155; border-radius: 12px; padding: 10px 16px; margin-bottom: 16px; }
-    .score-box { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; }
-    .score-val { font-size: 1.4rem; font-weight: bold; color: #22d3ee; font-family: monospace; }
-    canvas { background: #050811; border: 2px solid #334155; border-radius: 12px; display: block; margin: 0 auto 16px; }
-    .controls-hint { font-size: 0.8rem; color: #64748b; margin-bottom: 14px; }
-    .btn-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
-    button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
-    button:hover { background: #1d4ed8; }
-    .dpad { display: grid; grid-template-columns: repeat(3, 44px); gap: 6px; justify-content: center; }
-    .dpad button { width: 44px; height: 44px; padding: 0; font-size: 1.2rem; background: #1e293b; border: 1px solid #334155; }
-    .dpad button:hover { background: #334155; }
-  </style>
-</head>
-<body>
-  <div class="arcade-cabinet" id="game-app">
-    <h1>🐍 Arcade Snake</h1>
-    <p class="sub">Built autonomously in MaxIDE</p>
-    <div class="score-board">
-      <div class="score-box">Score <div id="score" class="score-val">0</div></div>
-      <div class="score-box">High Score <div id="high-score" class="score-val">0</div></div>
-    </div>
-    <canvas id="game-canvas" width="360" height="360"></canvas>
-    <div class="controls-hint">Use <strong>Arrow Keys</strong>, <strong>WASD</strong>, or D-Pad below</div>
-    <div class="btn-row">
-      <button id="btn-start" onclick="startGame()">Start / Restart</button>
-    </div>
-    <div class="dpad">
-      <div></div><button onclick="setDir(0, -1)">▲</button><div></div>
-      <button onclick="setDir(-1, 0)">◀</button><button onclick="setDir(0, 1)">▼</button><button onclick="setDir(1, 0)">▶</button>
-    </div>
-  </div>
-  <script>
-    const canvas = document.getElementById('game-canvas');
-    const ctx = canvas.getContext('2d');
-    const grid = 18;
-    const count = canvas.width / grid;
-    let snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
-    let food = {x: 15, y: 10};
-    let dx = 1, dy = 0;
-    let score = 0, highScore = 0;
-    let gameLoop = null;
-    let isRunning = false;
-
-    function placeFood() {
-      food = {
-        x: Math.floor(Math.random() * count),
-        y: Math.floor(Math.random() * count)
-      };
-      for (const seg of snake) {
-        if (seg.x === food.x && seg.y === food.y) placeFood();
-      }
-    }
-
-    function startGame() {
-      clearInterval(gameLoop);
-      snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
-      dx = 1; dy = 0;
-      score = 0;
-      document.getElementById('score').textContent = score;
-      placeFood();
-      isRunning = true;
-      gameLoop = setInterval(update, 110);
-    }
-
-    function setDir(x, y) {
-      if (!isRunning) startGame();
-      if ((x !== 0 && dx === -x) || (y !== 0 && dy === -y)) return;
-      dx = x; dy = y;
-    }
-
-    window.addEventListener('keydown', e => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) { setDir(0, -1); e.preventDefault(); }
-      if (['ArrowDown', 'KeyS'].includes(e.code)) { setDir(0, 1); e.preventDefault(); }
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) { setDir(-1, 0); e.preventDefault(); }
-      if (['ArrowRight', 'KeyD'].includes(e.code)) { setDir(1, 0); e.preventDefault(); }
-    });
-
-    function update() {
-      const head = {x: snake[0].x + dx, y: snake[0].y + dy};
-
-      if (head.x < 0) head.x = count - 1;
-      if (head.x >= count) head.x = 0;
-      if (head.y < 0) head.y = count - 1;
-      if (head.y >= count) head.y = 0;
-
-      for (let i = 0; i < snake.length; i++) {
-        if (snake[i].x === head.x && snake[i].y === head.y) {
-          clearInterval(gameLoop);
-          isRunning = false;
-          return;
-        }
-      }
-
-      snake.unshift(head);
-
-      if (head.x === food.x && head.y === food.y) {
-        score += 10;
-        document.getElementById('score').textContent = score;
-        if (score > highScore) {
-          highScore = score;
-          document.getElementById('high-score').textContent = highScore;
-        }
-        placeFood();
-      } else {
-        snake.pop();
-      }
-
-      draw();
-    }
-
-    function draw() {
-      ctx.fillStyle = '#050811';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = '#ef4444';
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#ef4444';
-      ctx.beginPath();
-      ctx.arc((food.x + 0.5) * grid, (food.y + 0.5) * grid, grid / 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      snake.forEach((seg, i) => {
-        ctx.fillStyle = i === 0 ? '#38bdf8' : '#22d3ee';
-        ctx.shadowBlur = i === 0 ? 8 : 0;
-        ctx.shadowColor = '#38bdf8';
-        ctx.fillRect(seg.x * grid + 1, seg.y * grid + 1, grid - 2, grid - 2);
-      });
-      ctx.shadowBlur = 0;
-    }
-
-    draw();
-    startGame();
-  </script>
-</body>
-</html>`;
-
-      calls.push({
-        id: `call-create-game-${Date.now()}`,
-        name: 'create_file',
-        arguments: { path: 'index.html', content: snakeHtml },
-      });
-      calls.push({
-        id: `call-prev-${Date.now() + 1}`,
-        name: 'open_preview',
-        arguments: { path: 'index.html' },
-      });
-      calls.push({
-        id: `call-nav-${Date.now() + 2}`,
-        name: 'browser_navigate',
-        arguments: { url: 'http://127.0.0.1:3456/workspace-preview/index.html' },
-      });
-      calls.push({
-        id: `call-dom-${Date.now() + 3}`,
-        name: 'browser_inspect_dom',
-        arguments: { selector: '#game-canvas' },
-      });
-    } else if (lower.includes('node') || lower.includes('hello') || (lower.includes('function') && lower.includes('return'))) {
-      let targetFile = 'app.js';
-      if (lower.includes('hello.js') || lower.includes('hello')) targetFile = 'hello.js';
-      else if (lower.includes('index.js')) targetFile = 'index.js';
-
-      let returnVal = 'Hello MaxIDE';
-      if (lower.includes('hello orbit') || lower.includes('orbit')) returnVal = 'Hello MaxIDE';
-      else if (lower.includes('hello world')) returnVal = 'Hello World';
-
-      const nodeJs = `function hello() {\n  return '${returnVal}';\n}\n\nconsole.log(hello());\n\nmodule.exports = { hello };\n`;
-      calls.push({
-        id: `call-create-node-${Date.now()}`,
-        name: 'create_file',
-        arguments: { path: targetFile, content: nodeJs },
-      });
-      calls.push({
-        id: `call-run-node-${Date.now() + 1}`,
-        name: 'run_command',
-        arguments: { command: `node ${targetFile}` },
-      });
-      calls.push({
-        id: `call-open-node-${Date.now() + 2}`,
-        name: 'open_file',
-        arguments: { path: targetFile },
-      });
-    } else if (lower.includes('messenger') || lower.includes('chat')) {
-      const messengerHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MaxIDE Messenger</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: #0f172a; color: #f8fafc; height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .messenger-container { width: 900px; height: 600px; background: #1e293b; border-radius: 16px; display: flex; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border: 1px solid #334155; }
-    .sidebar { width: 280px; background: #0f172a; border-right: 1px solid #334155; display: flex; flex-direction: column; }
-    .sidebar-header { padding: 20px; border-bottom: 1px solid #334155; font-size: 1.2rem; font-weight: 700; color: #38bdf8; }
-    .contact-list { list-style: none; overflow-y: auto; flex: 1; }
-    .contact { padding: 14px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: 0.2s; border-bottom: 1px solid #1e293b; }
-    .contact:hover, .contact.active { background: #1e293b; }
-    .avatar { width: 40px; height: 40px; border-radius: 50%; background: #6366f1; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-    .chat-area { flex: 1; display: flex; flex-direction: column; background: #1e293b; }
-    .chat-header { padding: 16px 24px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 12px; font-weight: 600; }
-    .messages-feed { flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
-    .message { max-width: 70%; padding: 12px 16px; border-radius: 14px; line-height: 1.4; font-size: 0.95rem; }
-    .message.received { align-self: flex-start; background: #334155; color: #f1f5f9; border-bottom-left-radius: 2px; }
-    .message.sent { align-self: flex-end; background: #3b82f6; color: white; border-bottom-right-radius: 2px; }
-    .input-form { padding: 16px 24px; border-top: 1px solid #334155; display: flex; gap: 12px; background: #0f172a; }
-    .input-field { flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 24px; padding: 12px 20px; color: white; outline: none; }
-    .send-btn { background: #3b82f6; border: none; border-radius: 24px; padding: 0 24px; color: white; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    .send-btn:hover { background: #2563eb; }
-  </style>
-</head>
-<body>
-  <div class="messenger-container" id="messenger-app">
-    <div class="sidebar">
-      <div class="sidebar-header">⚡ MaxMessenger</div>
-      <ul class="contact-list" id="contacts">
-        <li class="contact active">
-          <div class="avatar" style="background:#3b82f6">JD</div>
-          <div><div style="font-weight:600">Jane Doe</div><div style="font-size:0.8rem;color:#94a3b8">Online</div></div>
-        </li>
-        <li class="contact">
-          <div class="avatar" style="background:#10b981">AS</div>
-          <div><div style="font-weight:600">Alex Smith</div><div style="font-size:0.8rem;color:#94a3b8">2m ago</div></div>
-        </li>
-      </ul>
-    </div>
-    <div class="chat-area">
-      <div class="chat-header">
-        <div class="avatar" style="width:32px;height:32px;font-size:0.8rem;background:#3b82f6">JD</div>
-        <span>Jane Doe</span>
-      </div>
-      <div class="messages-feed" id="messages">
-        <div class="message received">Hi! Welcome to the new MaxIDE Messenger.</div>
-        <div class="message sent">Thanks! Everything is running smoothly.</div>
-      </div>
-      <form class="input-form" id="chat-form" onsubmit="event.preventDefault(); sendMessage();">
-        <input type="text" id="message-input" class="input-field" placeholder="Type your message..." />
-        <button type="submit" id="send-btn" class="send-btn">Send</button>
-      </form>
-    </div>
-  </div>
-  <script>
-    function sendMessage() {
-      const input = document.getElementById('message-input');
-      const text = input.value.trim();
-      if (!text) return;
-      const feed = document.getElementById('messages');
-      const sentMsg = document.createElement('div');
-      sentMsg.className = 'message sent';
-      sentMsg.textContent = text;
-      feed.appendChild(sentMsg);
-      input.value = '';
-      feed.scrollTop = feed.scrollHeight;
-      setTimeout(() => {
-        const reply = document.createElement('div');
-        reply.className = 'message received';
-        reply.textContent = 'Received: ' + text;
-        feed.appendChild(reply);
-        feed.scrollTop = feed.scrollHeight;
-      }, 600);
-    }
-  </script>
-</body>
-</html>`;
-
-      const serverJs = `const http = require('http');
-const fs = require('fs');
-const path = require('path');
-
-const PORT = 3457;
-const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/index.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
-  } else if (req.url === '/api/messages') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', messages: [{ id: 1, text: 'Hello from MaxMessenger Server!' }] }));
-  } else {
-    res.writeHead(404);
-    res.end('Not Found');
-  }
-});
-
-server.listen(PORT, '127.0.0.1', () => {
-  console.log('Messenger server listening on port ' + PORT);
-});
-`;
-
-      calls.push({
-        id: `call-create-html-${Date.now()}`,
-        name: 'create_file',
-        arguments: { path: 'index.html', content: messengerHtml },
-      });
-
-      calls.push({
-        id: `call-create-server-${Date.now() + 1}`,
-        name: 'create_file',
-        arguments: { path: 'server.js', content: serverJs },
-      });
-
-      calls.push({
-        id: `call-run-node-${Date.now() + 2}`,
-        name: 'run_command',
-        arguments: { command: 'node -c server.js' },
-      });
-
-      calls.push({
-        id: `call-preview-${Date.now() + 3}`,
-        name: 'open_preview',
-        arguments: { path: 'index.html' },
-      });
-
-      calls.push({
-        id: `call-nav-${Date.now() + 4}`,
-        name: 'browser_navigate',
-        arguments: { url: 'http://127.0.0.1:3456/workspace-preview/index.html' },
-      });
-
-      calls.push({
-        id: `call-dom-${Date.now() + 5}`,
-        name: 'browser_inspect_dom',
-        arguments: { selector: '#messages' },
-      });
-    } else if (lower.includes('portfolio') || lower.includes('website') || lower.includes('landing')) {
-        const portfolioHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MaxIDE Portfolio</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: #0f172a; color: #f8fafc; min-height: 100vh; padding: 40px 20px; }
-    .container { max-width: 900px; margin: 0 auto; }
-    header { text-align: center; margin-bottom: 40px; }
-    h1 { font-size: 2.5rem; color: #38bdf8; margin-bottom: 8px; }
-    p.subtitle { font-size: 1.1rem; color: #94a3b8; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-top: 30px; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; transition: transform 0.2s; }
-    .card:hover { transform: translateY(-4px); border-color: #38bdf8; }
-    .card h3 { color: #f1f5f9; margin-bottom: 10px; }
-    .card p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
-  </style>
-</head>
-<body>
-  <div class="container" id="portfolio-app">
-    <header>
-      <h1>Portfolio & Projects</h1>
-      <p class="subtitle">Built autonomously inside MaxIDE with verified tools.</p>
-    </header>
-    <div class="grid">
-      <div class="card">
-        <h3>🚀 Cloud Architecture</h3>
-        <p>Scalable distributed microservices and low-latency APIs.</p>
-      </div>
-      <div class="card">
-        <h3>⚡ Real-Time Systems</h3>
-        <p>WebSocket communication, live collaboration, and reactive UI.</p>
-      </div>
-      <div class="card">
-        <h3>🤖 Autonomous AI Agents</h3>
-        <p>Self-healing workflows and intelligent code synthesis.</p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-
-        calls.push({
-          id: `call-create-port-${Date.now()}`,
-          name: 'create_file',
-          arguments: { path: 'index.html', content: portfolioHtml },
-        });
-        calls.push({
-          id: `call-prev-${Date.now() + 1}`,
-          name: 'open_preview',
-          arguments: { path: 'index.html' },
-        });
-        calls.push({
-          id: `call-nav-${Date.now() + 2}`,
-          name: 'browser_navigate',
-          arguments: { url: 'http://127.0.0.1:3456/workspace-preview/index.html' },
-        });
-        calls.push({
-          id: `call-dom-${Date.now() + 3}`,
-          name: 'browser_inspect_dom',
-          arguments: { selector: 'body' },
-        });
-      } else {
-        // Generic Web Application Fallback
-        const genericHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MaxIDE Web Application</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: #0f172a; color: #f8fafc; height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .box { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 40px; text-align: center; max-width: 500px; }
-    h1 { color: #38bdf8; margin-bottom: 12px; }
-    p { color: #94a3b8; line-height: 1.6; margin-bottom: 24px; }
-    button { background: #3b82f6; border: none; padding: 12px 24px; color: white; border-radius: 8px; font-weight: 600; cursor: pointer; }
-    button:hover { background: #2563eb; }
-  </style>
-</head>
-<body>
-  <div class="box" id="main-app">
-    <h1>MaxIDE Application</h1>
-    <p>Your application is ready and running live on your computer.</p>
-    <button onclick="alert('Application interactive!')">Get Started</button>
-  </div>
-</body>
-</html>`;
-
-        calls.push({
-          id: `call-create-gen-${Date.now()}`,
-          name: 'create_file',
-          arguments: { path: 'index.html', content: genericHtml },
-        });
-        if (lower.includes('style.css') || lower.includes('css')) {
-          const genericCss = `* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }\nbody { background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }\n.counter, .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; text-align: center; }\nbutton { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; }\n`;
-          calls.push({
-            id: `call-create-css-${Date.now() + 10}`,
-            name: 'create_file',
-            arguments: { path: 'style.css', content: genericCss },
-          });
-        }
-        calls.push({
-          id: `call-prev-${Date.now() + 1}`,
-          name: 'open_preview',
-          arguments: { path: 'index.html' },
-        });
-        calls.push({
-          id: `call-nav-${Date.now() + 2}`,
-          name: 'browser_navigate',
-          arguments: { url: 'http://127.0.0.1:3456/workspace-preview/index.html' },
-        });
-        calls.push({
-          id: `call-dom-${Date.now() + 3}`,
-          name: 'browser_inspect_dom',
-          arguments: { selector: 'body' },
-        });
-      }
-
-    return calls;
-  }
-
   /**
-   * Intelligently process any user prompt or message:
-   * Uses Clarification-First Gate to guide beginners and clarify ambiguities,
-   * handles direct workbench actions, informational explanations in Answer Mode,
-   * or dispatches autonomous registered engineering tools.
+   * Canned synthesis is deprecated. MaxIDE uses genuine autonomous execution
+   * and closed-loop testing via ClosedLoopTestEngine.
    */
-  public async processMessage(
+  private synthesizeActionsForPrompt(_taskPrompt: string): ToolCall[] {
+    return [];
+  }
+
+    public async processMessage(
     userPrompt: string,
     options: {
       modelId?: string;

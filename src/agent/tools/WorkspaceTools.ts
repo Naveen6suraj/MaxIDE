@@ -19,6 +19,7 @@ import { SafeTerminal } from '../safety/SafeTerminal.js';
 import { PatchManager } from '../patch/PatchManager.js';
 import { CodebaseIntelligence } from '../intelligence/CodebaseIntelligence.js';
 import { ContentSanitizer } from '../safety/ContentSanitizer.js';
+import { InspectionTracker } from '../safety/InspectionTracker.js';
 
 export class DevServerManager {
   private activeServers: Map<string, { process: ChildProcess; port?: number; command: string; cwd?: string }> = new Map();
@@ -163,7 +164,14 @@ export function createWorkspaceTools(
       },
       permissionLevel: 'SAFE',
       execute: async (args: { path: string }) => {
-        return { path: args.path, content: workspaceManager.readFile(args.path) };
+        if (!args.path) return { error: 'Path is required' };
+        const content = workspaceManager.readFile(args.path);
+        InspectionTracker.getInstance().recordInspection(
+          'global-default-session',
+          workspaceManager.getRootPath(),
+          args.path
+        );
+        return { path: args.path, content };
       },
     },
 
@@ -203,14 +211,22 @@ export function createWorkspaceTools(
       },
       permissionLevel: 'APPROVAL_REQUIRED',
       execute: async (args: any) => {
-        const filePath = args.path || args.file || args.filename || 'index.js';
+        const filePath = args.path || args.file || args.filename;
+        if (!filePath) {
+          throw new Error('Path is required to create a file');
+        }
         let content = args.content ?? args.code ?? args.text ?? args.body ?? args.data;
         if (content === undefined || content === null) {
-          if (filePath.includes('hello')) {
-            content = "function hello() {\n  return 'Hello MaxIDE';\n}\n\nconsole.log(hello());\nmodule.exports = { hello };\n";
-          } else {
-            content = '';
-          }
+          throw new Error('Content is required to create a file');
+        }
+        const rootPath = workspaceManager.getRootPath();
+        const preCheck = InspectionTracker.getInstance().validatePreEdit(
+          'global-default-session',
+          rootPath,
+          filePath
+        );
+        if (!preCheck.allowed) {
+          throw new Error(preCheck.message || 'Pre-edit inspection required');
         }
         const sanitization = ContentSanitizer.sanitize(filePath, content);
         if (!sanitization.valid) {
@@ -218,6 +234,11 @@ export function createWorkspaceTools(
         }
         content = sanitization.sanitized;
         workspaceManager.writeFile(filePath, String(content));
+        InspectionTracker.getInstance().recordInspection(
+          'global-default-session',
+          rootPath,
+          filePath
+        );
         return { success: true, path: filePath, bytesWritten: Buffer.byteLength(String(content)) };
       },
     },
@@ -239,6 +260,17 @@ export function createWorkspaceTools(
       },
       permissionLevel: 'APPROVAL_REQUIRED',
       execute: async (args: { path: string; content: string; autoApply?: boolean }) => {
+        if (!args.path) throw new Error('Path is required to edit a file');
+        if (args.content === undefined || args.content === null) throw new Error('Content is required to edit a file');
+        const rootPath = workspaceManager.getRootPath();
+        const preCheck = InspectionTracker.getInstance().validatePreEdit(
+          'global-default-session',
+          rootPath,
+          args.path
+        );
+        if (!preCheck.allowed) {
+          throw new Error(preCheck.message || 'Pre-edit inspection required');
+        }
         const sanitization = ContentSanitizer.sanitize(args.path, args.content);
         if (!sanitization.valid) {
           throw new Error(sanitization.error);
@@ -247,6 +279,11 @@ export function createWorkspaceTools(
         const patch = patchManager.stagePatch([{ path: args.path, modifiedContent: safeContent }]);
         if (args.autoApply !== false) {
           await patchManager.applyPatchSet(patch.id);
+          InspectionTracker.getInstance().recordInspection(
+            'global-default-session',
+            rootPath,
+            args.path
+          );
           return {
             success: true,
             patchId: patch.id,

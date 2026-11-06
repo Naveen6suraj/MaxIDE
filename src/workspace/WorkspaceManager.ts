@@ -140,6 +140,18 @@ export class WorkspaceManager {
     return WorkspaceManager.resolveSafePathForRoot(this.rootPath, relPath);
   }
 
+  public static isReservedDeviceName(segment: string): boolean {
+    if (!segment || typeof segment !== 'string') return false;
+    // Strip trailing spaces and dots which Windows strips during device lookup
+    const cleaned = segment.replace(/[\s.]+$/, '');
+    if (!cleaned) return false;
+    // Base stem before the first dot, also stripped of trailing spaces and dots
+    const rawStem = cleaned.split('.')[0];
+    const stem = rawStem.replace(/[\s.]+$/, '');
+    const reservedRegex = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+    return reservedRegex.test(stem);
+  }
+
   public static resolveSafePathForRoot(rootDir: string, relPath: string): string {
     if (!relPath || typeof relPath !== 'string') {
       throw new Error('Invalid path: path must be a non-empty string.');
@@ -186,6 +198,29 @@ export class WorkspaceManager {
     const relativeToRoot = path.relative(normalizedRoot, normalizedAbs);
     if (!isInside || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
       throw new Error(`Security Violation: Path "${relPath}" attempts to escape workspace root.`);
+    }
+
+    // Check every segment of the resolved absolute path
+    const absSegments = normalizedAbs.split(/[\\\/]+/);
+    for (const seg of absSegments) {
+      if (WorkspaceManager.isReservedDeviceName(seg)) {
+        throw new Error(`Security Violation: Windows reserved device name "${seg}" is forbidden.`);
+      }
+    }
+
+    // Fail-closed canonical symlink & junction verification
+    if (fs.existsSync(normalizedAbs)) {
+      try {
+        const realPath = fs.realpathSync(normalizedAbs);
+        const realLower = path.normalize(realPath).toLowerCase();
+        const isRealInside = realLower === rootLower || realLower.startsWith(rootWithSep);
+        if (!isRealInside) {
+          throw new Error(`Security Violation: Symlink/Junction "${relPath}" points outside workspace root.`);
+        }
+      } catch (err: any) {
+        if (err?.message && err.message.includes('Security Violation')) throw err;
+        throw new Error(`Security Violation: Canonical path verification failed for "${relPath}": ${err?.message || String(err)}`);
+      }
     }
 
     return normalizedAbs;
