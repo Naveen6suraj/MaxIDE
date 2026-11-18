@@ -1797,33 +1797,43 @@ a:hover {
    ========================================================================== */
 @media (max-width: 1440px) {
   :root {
-    --sidebar-w: 224px;
-    --agent-w: 344px;
+    --sidebar-w: 216px;
+    --agent-w: 336px;
     --bottom-h: 196px;
   }
-  .search-trigger { min-width: 140px; }
+  .search-trigger { min-width: 130px; }
   .view-tab { padding: 0 7px; font-size: 11px; }
 }
 
-@media (max-width: 1320px) {
+@media (max-width: 1260px) {
   :root {
-    --sidebar-w: 204px;
-    --agent-w: 316px;
+    --sidebar-w: 192px;
+    --agent-w: 308px;
     --bottom-h: 180px;
   }
   .brand-tag { display: none; }
-  .search-trigger { min-width: 110px; }
+  .search-trigger { min-width: auto; padding: 0 8px; }
   .search-trigger .search-label { display: none; }
+  .workspace-pill { max-width: 130px; }
   .cc-quick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1120px) {
+  :root {
+    --sidebar-w: 176px;
+    --agent-w: 292px;
+  }
+  .view-tab span { display: none; }
+  .view-tab { padding: 0 8px; }
+  .workspace-pill { display: none; }
+  .center-column { min-width: 220px; }
   .cc-grid-main { grid-template-columns: 1fr; }
   .mission-grid { grid-template-columns: 1fr; }
   #pi-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .cc-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .search-trigger span.search-label { display: none; }
-  .search-trigger { min-width: auto; }
+}
+
+@media (max-width: 840px) {
   .left-sidebar {
     position: absolute;
     left: var(--activitybar-w);

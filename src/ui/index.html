@@ -27,27 +27,27 @@
         </button>
 
         <nav class="view-switcher" role="tablist" aria-label="Studio Views">
-          <button id="nav-view-home" class="view-tab active" role="tab" aria-selected="true" onclick="MaxViews.switchMainView('home')">
+          <button id="nav-view-home" class="view-tab active" role="tab" aria-selected="true" title="Command Center" onclick="MaxViews.switchMainView('home')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
             <span>Command Center</span>
           </button>
-          <button id="nav-view-workspace" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('workspace')">
+          <button id="nav-view-workspace" class="view-tab" role="tab" aria-selected="false" title="AI Engineering Workspace" onclick="MaxViews.switchMainView('workspace')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             <span>Workspace</span>
           </button>
-          <button id="nav-view-mission" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('mission')">
+          <button id="nav-view-mission" class="view-tab" role="tab" aria-selected="false" title="Agent Mission Control" onclick="MaxViews.switchMainView('mission')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
             <span>Mission Control</span>
           </button>
-          <button id="nav-view-preview" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('preview')">
+          <button id="nav-view-preview" class="view-tab" role="tab" aria-selected="false" title="Live Preview Studio" onclick="MaxViews.switchMainView('preview')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             <span>Preview</span>
           </button>
-          <button id="nav-view-intelligence" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('intelligence')">
+          <button id="nav-view-intelligence" class="view-tab" role="tab" aria-selected="false" title="Project Intelligence & Memory" onclick="MaxViews.switchMainView('intelligence')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
             <span>Intelligence</span>
           </button>
-          <button id="nav-view-ai-control" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('ai-control')">
+          <button id="nav-view-ai-control" class="view-tab" role="tab" aria-selected="false" title="AI Control Center (Ollama & Hardware)" onclick="MaxViews.switchMainView('ai-control')">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
             <span>AI Control</span>
           </button>
@@ -494,6 +494,20 @@
             <div class="msg-card msg-agent">
               <div style="font-weight:600;margin-bottom:4px;">MaxIDE APEX Autonomous Engineer</div>
               <div style="color:var(--text-secondary);font-size:12px;">Ready to inspect your codebase, stage reversible edits, execute safe terminal commands, and verify results through closed-loop tests.</div>
+            </div>
+          </div>
+
+          <!-- Inline Command Approval Card (always visible right in the AI Assistant!) -->
+          <div id="agent-inline-approval" class="hidden" style="margin:0 12px 8px;padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.45);display:flex;flex-direction:column;gap:8px;">
+            <div class="flex items-center gap-2" style="font-size:11.5px;font-weight:600;color:#FBBF24;">
+              <span class="status-dot warning"></span>
+              <span>Action Approval Required</span>
+            </div>
+            <div id="agent-inline-approval-cmd" class="mono" style="font-size:11.5px;padding:5px 8px;border-radius:4px;background:var(--bg-code);color:var(--text-primary);word-break:break-all;"></div>
+            <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+              <button id="agent-btn-approve-once" class="btn btn-xs btn-success">Allow Once</button>
+              <button id="agent-btn-approve-task" class="btn btn-xs btn-primary">Allow For Task</button>
+              <button id="agent-btn-approve-deny" class="btn btn-xs btn-danger">Deny</button>
             </div>
           </div>
 
@@ -1534,13 +1548,33 @@
       }).join('');
     }
 
-    async function dispatchAgentTask() {
+    function updateLiveProgressCard(text, isWarning = false) {
+      let card = document.getElementById('agent-live-progress-card');
+      const stream = document.getElementById('agent-chat-messages');
+      if (!stream) return;
+      if (!card) {
+        card = document.createElement('div');
+        card.id = 'agent-live-progress-card';
+        card.className = 'msg-card msg-system flex items-center gap-2';
+        stream.appendChild(card);
+      }
+      card.style.borderColor = isWarning ? 'rgba(245,158,11,0.45)' : 'var(--border-accent)';
+      card.innerHTML = `<span class="status-dot ${isWarning ? 'warning' : 'working'}"></span><span class="mono" style="font-size:11.5px;color:${isWarning ? '#FBBF24' : 'var(--text-primary)'};">${MaxUI.escapeHtml(text)}</span>`;
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    function clearLiveProgressCard() {
+      document.getElementById('agent-live-progress-card')?.remove();
+    }
+
+    async function dispatchAgentTask(overrideText) {
       const input = document.getElementById('agent-prompt-input');
-      const prompt = (input ? input.value : '').trim();
+      const prompt = (overrideText || (input ? input.value : '') || '').trim();
       if (!prompt) return;
-      input.value = '';
+      if (input && !overrideText) input.value = '';
 
       appendChatCard('user', `<div>${MaxUI.escapeHtml(prompt)}</div>`);
+      updateLiveProgressCard('Connecting to active AI model & planning...');
       setAgentBadge('Running', 'badge-cyan');
       document.getElementById('btn-agent-stop')?.classList.remove('hidden');
       const sendBtn = document.getElementById('btn-agent-send');
@@ -1581,16 +1615,27 @@
             if (!dataLine) continue;
             try {
               const payload = JSON.parse(dataLine.slice(5).trim());
-              if (payload.type === 'timeline' && (payload.event || payload.activity)) {
-                appendTimelineEntry(payload.event || payload.activity);
+              if (payload.type === 'status' && payload.text) {
+                updateLiveProgressCard(payload.text);
+              } else if (payload.type === 'timeline' && (payload.event || payload.activity)) {
+                const ev = payload.event || payload.activity;
+                appendTimelineEntry(ev);
+                if (ev.summary) updateLiveProgressCard(ev.summary, ev.type === 'error');
               } else if (payload.type === 'plan' && payload.plan) {
                 renderLivePlan(payload.plan);
               } else if (payload.type === 'complete') {
+                clearLiveProgressCard();
                 const outcome = payload.outcome || payload.result || {};
                 const ok = outcome.success !== false;
                 setAgentBadge(ok ? 'Complete' : 'Failed', ok ? 'badge-success' : 'badge-error');
                 const bodyText = outcome.finalAnswer || outcome.answer || (ok ? 'Task completed.' : 'Task failed.');
-                appendChatCard(ok ? 'agent' : 'error', formatAgentMarkdown(bodyText));
+                let actionsHtml = '';
+                if (Array.isArray(outcome.suggestedActions) && outcome.suggestedActions.length > 0) {
+                  actionsHtml = `<div class="flex gap-1" style="flex-wrap:wrap;margin-top:8px;">` +
+                    outcome.suggestedActions.map(a => `<button class="btn btn-xs" onclick="dispatchAgentTask('${MaxUI.escapeHtml(a.prompt || a.label).replace(/'/g, "\\'")}')">${MaxUI.escapeHtml(a.label)}</button>`).join('') +
+                    `</div>`;
+                }
+                appendChatCard(ok ? 'agent' : 'error', formatAgentMarkdown(bodyText) + actionsHtml);
                 if (!ok) {
                   MaxViews.pushLog('problem', bodyText.slice(0, 180), 'error');
                   MaxViews.addNotification('Agent Task Failed', bodyText.slice(0, 100), 'error');
@@ -1604,6 +1649,7 @@
                 await refreshFileTree();
                 MaxViews.refreshGitPanel();
               } else if (payload.type === 'error') {
+                clearLiveProgressCard();
                 setAgentBadge('Failed', 'badge-error');
                 appendChatCard('error', `<strong>Error:</strong> ${MaxUI.escapeHtml(payload.error)}`);
               }
@@ -1611,6 +1657,7 @@
           }
         }
       } catch (err) {
+        clearLiveProgressCard();
         if (err.name === 'AbortError') {
           setAgentBadge('Stopped', 'badge-warning');
           appendChatCard('agent', '<span style="color:var(--status-warning);">Execution stopped by user.</span>');
@@ -1619,6 +1666,7 @@
           appendChatCard('error', `<strong>Execution Error:</strong> ${MaxUI.escapeHtml(err.message)}`);
         }
       } finally {
+        clearLiveProgressCard();
         state.activeAbortController = null;
         document.getElementById('btn-agent-stop')?.classList.add('hidden');
         if (sendBtn) sendBtn.disabled = false;
@@ -1676,11 +1724,15 @@
       } catch {}
     }
 
-    // --- SafeTerminal Approval Polling ---
+    // --- SafeTerminal Approval Polling (Both Bottom Terminal + Inline AI Assistant!) ---
     async function respondApproval(id, decision) {
       await MaxUI.api.post(`/api/terminal/approvals/${encodeURIComponent(id)}`, { decision }).catch(() => {});
       document.getElementById('terminal-approval-banner')?.classList.add('hidden');
+      document.getElementById('agent-inline-approval')?.classList.add('hidden');
       state.pendingApprovalId = null;
+      if (state.activeAbortController) {
+        updateLiveProgressCard(decision === 'deny' ? 'Command denied — resuming agent...' : 'Command approved — executing...');
+      }
       MaxViews.refreshMissionControl();
     }
 
@@ -1688,16 +1740,30 @@
       try {
         const list = await MaxUI.api.get('/api/terminal/approvals');
         const banner = document.getElementById('terminal-approval-banner');
-        if (Array.isArray(list) && list.length > 0 && banner) {
+        const inlineBox = document.getElementById('agent-inline-approval');
+        if (Array.isArray(list) && list.length > 0) {
           const req = list[0];
           state.pendingApprovalId = req.id;
-          document.getElementById('terminal-approval-text').textContent = `Approval Required: $ ${req.command}`;
-          document.getElementById('btn-approve-once').onclick = () => respondApproval(req.id, 'allow_once');
-          document.getElementById('btn-approve-task').onclick = () => respondApproval(req.id, 'allow_for_task');
-          document.getElementById('btn-approve-deny').onclick = () => respondApproval(req.id, 'deny');
-          banner.classList.remove('hidden');
-        } else if (banner) {
-          banner.classList.add('hidden');
+          if (banner) {
+            document.getElementById('terminal-approval-text').textContent = `Approval Required: $ ${req.command}`;
+            document.getElementById('btn-approve-once').onclick = () => respondApproval(req.id, 'allow_once');
+            document.getElementById('btn-approve-task').onclick = () => respondApproval(req.id, 'allow_for_task');
+            document.getElementById('btn-approve-deny').onclick = () => respondApproval(req.id, 'deny');
+            banner.classList.remove('hidden');
+          }
+          if (inlineBox) {
+            document.getElementById('agent-inline-approval-cmd').textContent = `$ ${req.command}`;
+            document.getElementById('agent-btn-approve-once').onclick = () => respondApproval(req.id, 'allow_once');
+            document.getElementById('agent-btn-approve-task').onclick = () => respondApproval(req.id, 'allow_for_task');
+            document.getElementById('agent-btn-approve-deny').onclick = () => respondApproval(req.id, 'deny');
+            inlineBox.classList.remove('hidden');
+          }
+          if (state.activeAbortController) {
+            updateLiveProgressCard(`Waiting for your approval: $ ${req.command}`, true);
+          }
+        } else {
+          if (banner) banner.classList.add('hidden');
+          if (inlineBox) inlineBox.classList.add('hidden');
         }
       } catch {}
     }
@@ -1863,7 +1929,8 @@
         MaxViews.refreshGitPanel(),
         checkStartupRecovery(),
       ]);
-      setInterval(pollApprovals, 3000);
+      setInterval(pollApprovals, 1200);
+      setTimeout(refreshTopbarModels, 2500);
       MaxViews.pushLog('output', 'MaxIDE APEX Studio initialized and connected to backend gateway.', 'success');
     });
   </script>
