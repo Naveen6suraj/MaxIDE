@@ -1630,10 +1630,19 @@
                 setAgentBadge(ok ? 'Complete' : 'Failed', ok ? 'badge-success' : 'badge-error');
                 const bodyText = outcome.finalAnswer || outcome.answer || (ok ? 'Task completed.' : 'Task failed.');
                 let actionsHtml = '';
+                const actionBtns = [];
+                if (outcome.openPreview) {
+                  const safePrev = MaxUI.escapeHtml(outcome.openPreview).replace(/'/g, "\\'");
+                  actionBtns.push(`<button class="btn btn-xs btn-primary" onclick="MaxViews.switchMainView('preview'); MaxViews.navigatePreviewUrl('${safePrev}');">Open Live Preview</button>`);
+                  actionBtns.push(`<a class="btn btn-xs" href="${MaxUI.escapeHtml(outcome.openPreview)}" target="_blank" rel="noopener">Open in New Tab ↗</a>`);
+                }
                 if (Array.isArray(outcome.suggestedActions) && outcome.suggestedActions.length > 0) {
-                  actionsHtml = `<div class="flex gap-1" style="flex-wrap:wrap;margin-top:8px;">` +
-                    outcome.suggestedActions.map(a => `<button class="btn btn-xs" onclick="dispatchAgentTask('${MaxUI.escapeHtml(a.prompt || a.label).replace(/'/g, "\\'")}')">${MaxUI.escapeHtml(a.label)}</button>`).join('') +
-                    `</div>`;
+                  outcome.suggestedActions.forEach(a => {
+                    actionBtns.push(`<button class="btn btn-xs" onclick="dispatchAgentTask('${MaxUI.escapeHtml(a.prompt || a.label).replace(/'/g, "\\'")}')">${MaxUI.escapeHtml(a.label)}</button>`);
+                  });
+                }
+                if (actionBtns.length > 0) {
+                  actionsHtml = `<div class="flex gap-2" style="flex-wrap:wrap;margin-top:8px;">${actionBtns.join('')}</div>`;
                 }
                 appendChatCard(ok ? 'agent' : 'error', formatAgentMarkdown(bodyText) + actionsHtml);
                 if (!ok) {
@@ -1642,9 +1651,12 @@
                 } else {
                   MaxViews.addNotification('Agent Task Completed', prompt.slice(0, 80), 'success');
                 }
-                if (outcome.openFile) openFileInEditor(outcome.openFile);
+                if (outcome.openFile && outcome.intent !== 'BROWSER_TASK') openFileInEditor(outcome.openFile);
                 if (outcome.openPreview) {
                   MaxViews.navigatePreviewUrl(outcome.openPreview);
+                  if (outcome.intent === 'BROWSER_TASK' || outcome.actionType === 'direct_action' || outcome.actionType === 'browser_task') {
+                    MaxViews.switchMainView('preview');
+                  }
                 }
                 await refreshFileTree();
                 MaxViews.refreshGitPanel();
