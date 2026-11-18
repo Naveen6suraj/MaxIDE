@@ -802,8 +802,9 @@ export class OllamaProvider extends BaseProvider {
       tools: formattedTools,
       stream: false,
       options: {
-        temperature: request.temperature ?? 0.2,
-        num_ctx: 4096,
+        temperature: request.temperature ?? 0.25,
+        num_ctx: 8192,
+        num_predict: 4096,
       },
     };
 

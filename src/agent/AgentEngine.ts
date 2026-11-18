@@ -148,6 +148,7 @@ export class AgentEngine {
   public readonly testEngine: ClosedLoopTestEngine;
   public readonly projectMemory: ProjectMemoryManager;
   private currentLifecycleState: TaskLifecycleState = 'IDLE';
+  private sessionHistory: Map<string, ChatMessage[]> = new Map();
   private currentEvidence: TaskExecutionEvidence = {
     inspectedFiles: [],
     modifiedFiles: [],
@@ -451,6 +452,7 @@ export class AgentEngine {
       onStep?: (step: AgentStep) => void;
       contextMentions?: string;
       createPreCheckpoint?: boolean;
+      sessionId?: string;
     } = {}
   ): Promise<AgentTaskResult> {
     if (options.autonomyMode) {
@@ -506,7 +508,11 @@ export class AgentEngine {
       '1. REAL WORKSPACE EXECUTION: You have direct access to files, SafeTerminal, dev servers, git, and Playwright browser tools.\n' +
       '2. ZERO DISCLAIMERS: NEVER say "I cannot access your files", "I am just an AI", or "Please create the files manually". You have real tools that run on the computer.\n' +
       '3. STRICT REGISTERED TOOLS ONLY: You must ONLY call tools provided in your schema (create_file, edit_file, read_file, list_files, run_command, start_dev_server, browser_navigate, browser_inspect_dom, browser_screenshot, open_file, open_preview). NEVER invent or hallucinate tool names like "build_<app>", "create_<app>", or "<task_name>".\n' +
-      '4. HOW TO BUILD APPLICATIONS: To build any application (e.g. messenger, website, React app, game, API):\n' +
+      '4. COMPLETE PRODUCTION-GRADE APPLICATIONS (NO STUBS): When creating or updating any web app (e.g. index.html, app.js, style.css):\n' +
+      '   - NEVER write a bare 1-line placeholder like <h1>Title</h1> or skeleton TODO code.\n' +
+      '   - ALWAYS build a complete, polished, modern-styled, responsive, fully interactive application implementing EVERY detail the user asked for (clean CSS styling, forms, interactive state, real calculations/analytics, localStorage persistence, and clean UX).\n' +
+      '   - If modifying an existing file, ALWAYS call read_file first, then call edit_file with the complete upgraded file.\n' +
+      '   - Call create_file or edit_file to write real working code, then call open_preview so the user sees it immediately.\n' +
       '   - Step 1: Call "create_file" to write the source code files (e.g. index.html, server.js, app.js).\n' +
       '   - Step 2: Call "run_command" or "start_dev_server" to test syntax and launch the application.\n' +
       '   - Step 3: Call "browser_navigate" and "browser_inspect_dom" or "open_preview" to verify the app in the real browser.\n' +
@@ -518,9 +524,13 @@ export class AgentEngine {
       (projectMemContext ? '\n\nPersistent Project Memory:\n' + projectMemContext : '') +
       '\n\nSolve the user request thoroughly using your registered tools. Methodically inspect, modify, run verification, diagnose any errors, and confirm completion.';
 
+    const activeSessKey = options.sessionId || 'default';
+    const priorTurns = (this.sessionHistory.get(activeSessKey) || []).slice(-8);
+    const userContent = options.contextMentions ? `${taskPrompt}\n\nAdditional Context:\n${options.contextMentions}` : taskPrompt;
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: options.contextMentions ? `${taskPrompt}\n\nAdditional Context:\n${options.contextMentions}` : taskPrompt },
+      ...priorTurns,
+      { role: 'user', content: userContent },
     ];
 
     const steps: AgentStep[] = [];
@@ -532,7 +542,14 @@ export class AgentEngine {
     while (currentStep < maxSteps) {
       currentStep++;
 
-      const toolDefs = this.toolRegistry.getDefinitions();
+      const allToolDefs = this.toolRegistry.getDefinitions();
+      const resolvedModelObj = this.gateway.modelRegistry.getModel(modelId || '');
+      const isLocalModel = Boolean(resolvedModelObj?.local || (modelId || '').includes(':'));
+      const coreCodingTools = new Set(['read_file', 'create_file', 'edit_file', 'list_files', 'search_files', 'run_command', 'open_file', 'open_preview']);
+      const needsMediaOrArchive = /\b(audio|music|voice|video|image|photo|zip|archive|pdf|docx|pptx|presentation|slide)\b/i.test(taskPrompt);
+      const toolDefs = (isLocalModel && !needsMediaOrArchive)
+        ? allToolDefs.filter((t) => coreCodingTools.has(t.name))
+        : allToolDefs;
       const currentToolCalls: ToolCall[] = [];
       let stepThought = '';
 
@@ -781,12 +798,27 @@ export class AgentEngine {
           this.logActivity('tool_end', `Tool ${tc.name} completed`, execResult.result);
         }
 
-        // Feed tool result back into context
+        // Feed tool result back into context (with HTML stub quality steer guard)
+        let toolResultContent = typeof execResult.result === 'string'
+          ? execResult.result
+          : JSON.stringify(execResult.result || execResult.error);
+
+        if (execResult.success && (tc.name === 'create_file' || tc.name === 'edit_file')) {
+          const writtenPath = String((tc.arguments as any)?.path || '');
+          const writtenContent = String((tc.arguments as any)?.content || '');
+          if (writtenPath.toLowerCase().endsWith('.html') && writtenContent.trim().length < 220) {
+            toolResultContent = JSON.stringify({
+              ...(typeof execResult.result === 'object' ? execResult.result : { result: execResult.result }),
+              qualityWarning: `WARNING: "${writtenPath}" is only ${writtenContent.trim().length} characters (a minimal stub). Call edit_file immediately to write a complete, modern-styled, responsive, interactive HTML5/CSS/JS application implementing ALL features the user requested.`,
+            });
+          }
+        }
+
         messages.push({
           role: 'tool',
           name: tc.name,
           toolCallId: tc.id,
-          content: typeof execResult.result === 'string' ? execResult.result : JSON.stringify(execResult.result || execResult.error),
+          content: toolResultContent,
         });
       }
 
@@ -960,6 +992,13 @@ export class AgentEngine {
         finalAnswer = `TASK FAILED: Model attempted an invalid tool call and failed to create project files.`;
       }
     }
+
+    const updatedHistory = [
+      ...(this.sessionHistory.get(activeSessKey) || []),
+      { role: 'user' as const, content: taskPrompt.slice(0, 1200) },
+      { role: 'assistant' as const, content: (finalAnswer || '').slice(0, 1200) },
+    ].slice(-12);
+    this.sessionHistory.set(activeSessKey, updatedHistory);
 
     this.logActivity('thought', taskActuallySucceeded ? 'Completed' : 'Task Failed');
 
