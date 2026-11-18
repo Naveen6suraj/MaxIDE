@@ -1248,6 +1248,20 @@
       const isText = isTextFile(relPath);
 
       let tab = state.openTabs.find(t => t.path === relPath);
+      if (tab && isText && !tab.isBinary && !tab.isDirty) {
+        // Always refresh clean already-open tabs from disk so agent edits appear immediately!
+        try {
+          const freshRes = await fetch(`/api/workspace/file?path=${encodeURIComponent(relPath)}&_t=${Date.now()}`);
+          if (freshRes.ok) {
+            const freshData = await freshRes.json();
+            if (typeof freshData.content === 'string') {
+              tab.content = freshData.content;
+              tab.originalContent = freshData.content;
+              tab.isDirty = false;
+            }
+          }
+        } catch {}
+      }
       if (!tab) {
         if (isText) {
           const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(relPath)}`);
@@ -1804,9 +1818,29 @@
                   MaxViews.addNotification('Agent Task Completed', prompt.slice(0, 80), 'success');
                 }
                 if (outcome.openFile && outcome.intent !== 'BROWSER_TASK') openFileInEditor(outcome.openFile);
+                // Refresh all clean already-open tabs from disk so Monaco never shows stale pre-edit code
+                (async () => {
+                  for (const t of state.openTabs) {
+                    if (!t.isBinary && !t.isDirty) {
+                      try {
+                        const r = await fetch(`/api/workspace/file?path=${encodeURIComponent(t.path)}&_t=${Date.now()}`);
+                        if (r.ok) {
+                          const d = await r.json();
+                          if (typeof d.content === 'string') {
+                            t.content = d.content;
+                            t.originalContent = d.content;
+                            if (t.path === state.activeTabPath) syncBufferToEditor(t);
+                          }
+                        }
+                      } catch {}
+                    }
+                  }
+                  renderTabs();
+                })();
                 if (outcome.openPreview) {
                   MaxViews.navigatePreviewUrl(outcome.openPreview);
-                  if (outcome.intent === 'BROWSER_TASK' || outcome.actionType === 'direct_action' || outcome.actionType === 'browser_task') {
+                  const askedOpenLocalhost = /\b(open|show|launch|view|preview)\b.*\b(local\s*host|preview|browser|app|site)\b/i.test(prompt);
+                  if (askedOpenLocalhost || outcome.intent === 'BROWSER_TASK' || outcome.actionType === 'direct_action' || outcome.actionType === 'browser_task') {
                     MaxViews.switchMainView('preview');
                   }
                 }

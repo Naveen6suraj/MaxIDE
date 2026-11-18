@@ -463,7 +463,7 @@ export class IntentClassifier {
     if (/localhost:\d+/i.test(raw) || /127\.0\.0\.1:\d+/i.test(raw)) return true;
 
     const openWebsitePattern = /\b(open|view|show|launch|preview|test)\s+(the\s+)?(website|site|web\s+app|app|application|local\s*host|preview|live\s+app|browser\s+preview|browser)\b/i;
-    if (openWebsitePattern.test(lower) && !/\b(build|create|make|code)\b/i.test(lower)) {
+    if (openWebsitePattern.test(lower) && !/\b(build|rebuild|create|make|code|rewrite|redo|improve|update|upgrade|fix|edit|modify|redesign|refactor|implement|add)\b/i.test(lower)) {
       return true;
     }
 

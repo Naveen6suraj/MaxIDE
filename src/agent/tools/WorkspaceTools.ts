@@ -108,6 +108,20 @@ export class DevServerManager {
 
 import { CheckpointManager } from '../checkpoint/CheckpointManager.js';
 
+function validateAgentFileWrite(filePath: string, content: string, enforceAppQuality: boolean): void {
+  const trimmedPath = String(filePath || '').trim();
+  if (/^(node|npm|npx|python|python3|git|cd|mkdir|powershell|cmd|bash|sh)\s+/i.test(trimmedPath)) {
+    throw new Error(`Invalid filename "${trimmedPath}": looks like a shell command, not a file path. Use "run_command" to execute commands, or provide a clean file path like "index.html" or "app.js".`);
+  }
+  if (enforceAppQuality && trimmedPath.toLowerCase().endsWith('.html')) {
+    const trimmedBody = String(content || '').trim();
+    const hasDocStructure = /<html|<body|<style|<script/i.test(trimmedBody);
+    if (trimmedBody.length < 260 || !hasDocStructure) {
+      throw new Error(`REJECTED_HTML_STUB: Refused to overwrite "${trimmedPath}" with a minimal stub (${trimmedBody.length} chars). Write a COMPLETE, self-contained HTML5 application (<!DOCTYPE html>) with rich modern CSS inside <style>, interactive forms/tables/stats/filters in <body>, realistic sample data, and complete working JavaScript inside <script> with localStorage persistence.`);
+    }
+  }
+}
+
 export function createWorkspaceTools(
   workspaceManager: WorkspaceManager,
   safeTerminal: SafeTerminal,
@@ -210,7 +224,7 @@ export function createWorkspaceTools(
         },
       },
       permissionLevel: 'APPROVAL_REQUIRED',
-      execute: async (args: any) => {
+      execute: async (args: any, context?: any) => {
         const filePath = args.path || args.file || args.filename;
         if (!filePath) {
           throw new Error('Path is required to create a file');
@@ -233,6 +247,7 @@ export function createWorkspaceTools(
           throw new Error(sanitization.error);
         }
         content = sanitization.sanitized;
+        validateAgentFileWrite(filePath, String(content), Boolean(context?.enforceAppQuality));
         workspaceManager.writeFile(filePath, String(content));
         InspectionTracker.getInstance().recordInspection(
           'global-default-session',
@@ -259,7 +274,7 @@ export function createWorkspaceTools(
         },
       },
       permissionLevel: 'APPROVAL_REQUIRED',
-      execute: async (args: { path: string; content: string; autoApply?: boolean }) => {
+      execute: async (args: { path: string; content: string; autoApply?: boolean }, context?: any) => {
         if (!args.path) throw new Error('Path is required to edit a file');
         if (args.content === undefined || args.content === null) throw new Error('Content is required to edit a file');
         const rootPath = workspaceManager.getRootPath();
@@ -276,6 +291,7 @@ export function createWorkspaceTools(
           throw new Error(sanitization.error);
         }
         const safeContent = sanitization.sanitized;
+        validateAgentFileWrite(args.path, safeContent, Boolean(context?.enforceAppQuality));
         const patch = patchManager.stagePatch([{ path: args.path, modifiedContent: safeContent }]);
         if (args.autoApply !== false) {
           await patchManager.applyPatchSet(patch.id);
@@ -358,8 +374,50 @@ export function createWorkspaceTools(
         },
       },
       permissionLevel: 'APPROVAL_REQUIRED', // SafeTerminal dynamically checks command safety
-      execute: async (args: { command: string; reason?: string }) => {
-        return safeTerminal.executeCommand(args.command, { reason: args.reason });
+      timeoutMs: 120000,
+      execute: async (args: { command: string; reason?: string }, context?: any) => {
+        const cmd = String(args.command || '').trim();
+        const lower = cmd.toLowerCase();
+        // Intercept blocking foreground static servers or browser-launch commands so run_command NEVER hangs 30s
+        if (/\b(http-server|live-server|http\.server|npx\s+serve|serve\s+-|browser-sync)\b/i.test(lower) || /^(start|open|explorer)\s+https?:\/\//i.test(lower)) {
+          return {
+            command: cmd,
+            exitCode: 0,
+            stdout: 'MaxIDE already serves this workspace live at /workspace-preview/index.html (no foreground HTTP server needed). Call open_preview with url "/workspace-preview/index.html" to display it immediately.',
+            stderr: '',
+            durationMs: 5,
+            safetyTier: 'SAFE',
+            previewUrl: '/workspace-preview/index.html',
+          };
+        }
+        // Intercept long-running dev servers (npm run dev / vite / npm start) and launch in background
+        if (/^(npm\s+run\s+dev|npm\s+start|npx\s+vite|vite(\s|$))/i.test(lower)) {
+          const root = workspaceManager.getRootPath();
+          const hasPkg = fs.existsSync(path.join(root, 'package.json'));
+          if (!hasPkg) {
+            return {
+              command: cmd,
+              exitCode: 0,
+              stdout: 'Static workspace detected (no package.json dev server). MaxIDE serves index.html directly at /workspace-preview/index.html. Call open_preview now.',
+              stderr: '',
+              durationMs: 5,
+              safetyTier: 'SAFE',
+              previewUrl: '/workspace-preview/index.html',
+            };
+          }
+          const srv = await devServerManager.startServer('auto-dev-' + Date.now(), cmd, root);
+          return {
+            command: cmd,
+            exitCode: srv.success ? 0 : 1,
+            stdout: srv.message,
+            stderr: srv.success ? '' : srv.message,
+            durationMs: 500,
+            safetyTier: 'SAFE',
+            previewUrl: srv.port ? `http://127.0.0.1:${srv.port}` : '/workspace-preview/index.html',
+          };
+        }
+        const autoBypass = context?.autonomyMode === 'AUTONOMOUS';
+        return safeTerminal.executeCommand(cmd, { reason: args.reason, bypassApproval: autoBypass, timeoutMs: 60000 });
       },
     },
 

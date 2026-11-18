@@ -779,6 +779,8 @@ export class AgentEngine {
         const toolStartMs = Date.now();
         const execResult: ToolExecutionResult = await this.toolRegistry.execute(tc.name, tc.arguments, {
           model: this.gateway.modelRegistry.getModel(modelId || ''),
+          autonomyMode: this.autonomyMode,
+          enforceAppQuality: true,
         });
         totalToolsExecuted++;
         const toolOk = Boolean(execResult.success && !(execResult.result && execResult.result.exitCode && execResult.result.exitCode !== 0));
@@ -789,9 +791,12 @@ export class AgentEngine {
 
         // REQUIREMENT 20: ERROR RECOVERY LOOP WITH FAILURE CATEGORIZATION
         if (!execResult.success || (execResult.result && execResult.result.exitCode && execResult.result.exitCode !== 0)) {
-          consecutiveErrors++;
+          const isQualitySteer = String(execResult.error || '').includes('REJECTED_HTML_STUB');
+          if (!isQualitySteer) {
+            consecutiveErrors++;
+          }
           const diag = this.diagnoseToolFailure(tc.name, execResult, true);
-          this.logActivity('error', `[Failure: ${diag.category}] Tool ${tc.name} failed (${consecutiveErrors}/${maxErrorRetries} retries): ${diag.errorMessage}`);
+          this.logActivity(isQualitySteer ? 'recovery' : 'error', `[Failure: ${diag.category}] Tool ${tc.name} ${isQualitySteer ? 'requested fuller HTML implementation' : `failed (${consecutiveErrors}/${maxErrorRetries} retries)`}: ${diag.errorMessage}`);
 
           if (consecutiveErrors <= maxErrorRetries) {
             this.logActivity('recovery', `[Recovery: ${diag.category}] ${diag.recoveryGuidance}`);
