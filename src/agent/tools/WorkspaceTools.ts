@@ -230,6 +230,9 @@ export function createWorkspaceTools(
           throw new Error('Path is required to create a file');
         }
         let content = args.content ?? args.code ?? args.text ?? args.body ?? args.data;
+        if (typeof content === 'object' && content !== null) {
+          content = content.content ?? content.code ?? content.value ?? content.text ?? JSON.stringify(content);
+        }
         if (content === undefined || content === null) {
           throw new Error('Content is required to create a file');
         }

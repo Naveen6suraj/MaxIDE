@@ -234,10 +234,11 @@ export class ToolchainDetector {
           missing.push('Node.js + npm');
           install.push('Install Node.js LTS: winget install OpenJS.NodeJS.LTS');
         }
-        if (!caps.hasPackageJson && !caps.hasVite) {
-          // On greenfield local workspaces without Vite scaffolded, Vite SPA requires install/scaffold
-          // Keep feasible ONLY when workspace already has Vite/React or npm is ready & not local-small
+        if (!caps.hasVite) {
+          missing.push('Vite build tool (vite dependency not present in workspace package.json)');
+          install.push('Install Vite in workspace: npm install --save-dev vite');
         }
+        break;
         break;
 
       case 'modular-node-ts-sqlite-service':

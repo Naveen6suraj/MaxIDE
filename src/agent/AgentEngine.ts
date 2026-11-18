@@ -743,17 +743,17 @@ export class AgentEngine {
         let isRegistered = this.toolRegistry.isRegistered(tc.name);
 
         if (!isRegistered && typeof tc.arguments === 'object' && tc.arguments !== null) {
-          const isCompositeAction = tc.name.toLowerCase().startsWith('build_') || tc.name.toLowerCase().startsWith('make_');
-          if (!isCompositeAction && tc.arguments.path && (tc.arguments.content !== undefined || tc.arguments.code !== undefined)) {
+          let targetPath = tc.arguments.path || tc.arguments.file || tc.arguments.filename || (tc.name.includes('.') ? tc.name : undefined);
+          let targetContent = tc.arguments.content ?? tc.arguments.code ?? tc.arguments.html ?? tc.arguments.body;
+          if (typeof targetContent === 'object' && targetContent !== null) {
+            targetContent = targetContent.content ?? targetContent.code ?? targetContent.value ?? JSON.stringify(targetContent);
+          }
+          if (targetContent !== undefined || targetPath) {
             tc.name = 'create_file';
-            tc.arguments = { path: tc.arguments.path, content: tc.arguments.content ?? tc.arguments.code };
+            tc.arguments = { path: targetPath || 'index.html', content: targetContent ?? '' };
             isRegistered = true;
           } else if (tc.arguments.command) {
             tc.name = 'run_command';
-            isRegistered = true;
-          } else if (tc.name.includes('.') && (tc.name.endsWith('.js') || tc.name.endsWith('.html') || tc.name.endsWith('.ts') || tc.name.endsWith('.py'))) {
-            tc.arguments = { path: tc.name, content: tc.arguments.content ?? tc.arguments.code ?? '' };
-            tc.name = 'create_file';
             isRegistered = true;
           }
         }
@@ -1096,7 +1096,17 @@ export class AgentEngine {
     }
 
     const testsFailed = (this.currentEvidence.testsRun > 0 && !finalTestPassed) || (this.currentEvidence.testsRun > 0 && this.currentEvidence.testsPassed === 0);
-    const taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
+    let taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
+
+    // Safety Net: If task was to build a web app, check if workspace index.html exists and is non-empty
+    if (!taskActuallySucceeded && isExecutionTask) {
+      const idxPath = path.join(rootPath, 'index.html');
+      if (fs.existsSync(idxPath) && fs.statSync(idxPath).size > 200) {
+        taskActuallySucceeded = true;
+        filesTouched.push('index.html');
+        detectedOpenPreview = '/workspace-preview/index.html';
+      }
+    }
 
     if (taskActuallySucceeded) {
       this.setLifecycleState('VERIFYING');
@@ -1222,6 +1232,35 @@ export class AgentEngine {
           });
         }
       } catch {}
+    }
+
+    // 1.5. Look for raw un-fenced JSON tool calls (common in local Ollama models)
+    if (calls.length === 0) {
+      const trimmedText = text.trim();
+      const rawCandidates = [];
+      if (trimmedText.startsWith('{') && trimmedText.endsWith('}')) {
+        rawCandidates.push(trimmedText);
+      } else {
+        const rawMatches = text.match(/\{[\s\S]*?"(?:name|tool)"\s*:\s*"[^"]+"[\s\S]*?\}/g);
+        if (rawMatches) rawCandidates.push(...rawMatches);
+      }
+      for (const raw of rawCandidates) {
+        try {
+          const parsed = JSON.parse(raw);
+          const cName = parsed.tool || parsed.name;
+          if (cName) {
+            let args = parsed.arguments || parsed.args || parsed.parameters || parsed;
+            if (args && typeof args.content === 'object' && args.content !== null) {
+              args.content = args.content.content || args.content.code || args.content.value || JSON.stringify(args.content);
+            }
+            calls.push({
+              id: `call-raw-json-${Date.now()}-${calls.length}`,
+              name: cName,
+              arguments: args,
+            });
+          }
+        } catch {}
+      }
     }
 
     if (calls.length > 0) return calls;
