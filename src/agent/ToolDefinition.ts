@@ -255,8 +255,8 @@ export class ToolRegistry {
       };
     }
 
-    // 3. Execution with timeout
-    const timeoutMs = tool.timeoutMs || 30000;
+    // 3. Execution with timeout (commands receive 120s; general tools 45s)
+    const timeoutMs = tool.timeoutMs || (['run_command', 'execute_command', 'executeCommand'].includes(name) ? 120000 : 45000);
     try {
       const executePromise = tool.execute(args, context);
       const timeoutPromise = new Promise((_, reject) =>

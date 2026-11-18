@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-11-18T18:17:00.806Z",
+  "checks": [
+    {
+      "name": "Compiler Discovery",
+      "passed": true,
+      "detail": "cscPath=C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe, dotnet=false, cargo=false"
+    },
+    {
+      "name": "Capability-Aware Selection",
+      "passed": true,
+      "detail": "Selected native-winforms-csc; excluded infeasible: native-wpf-dotnet, native-tauri-rust, native-electron-node"
+    },
+    {
+      "name": "Missing-Compiler Blocker",
+      "passed": true,
+      "detail": "Install .NET Framework 4.8 Developer Pack or .NET 8 SDK: winget install Microsoft.DotNet.SDK.8 | Install .NET 8 SDK: winget install Microsoft.DotNet.SDK.8 | Install Rust via rustup: https://rustup.rs (or winget install Rustlang.Rustup) | Install Electron in workspace: npm install --save-dev electron"
+    },
+    {
+      "name": "WinForms csc.exe Compilation",
+      "passed": true,
+      "detail": "Compiled 4608 byte WinForms .exe"
+    },
+    {
+      "name": "Native Launch, Window Inspection & Clean Shutdown",
+      "passed": true,
+      "detail": "PID=21548, MainWindowTitle=\"MaxIDE Native Verification Window\", clean exit verified"
+    },
+    {
+      "name": "Installed Windows Desktop App Verification",
+      "passed": true,
+      "detail": "Verified C:\\Users\\navee\\AppData\\Local\\Programs\\MaxIDE\\MaxIDE.exe + C:\\Users\\navee\\AppData\\Local\\Programs\\MaxIDE\\dist\\server\\index.js"
+    }
+  ],
+  "capabilities": {
+    "platformOs": "win32",
+    "cscAvailable": true,
+    "cscPath": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+    "winFormsAvailable": true,
+    "dotnetAvailable": false,
+    "dotnetVersion": null,
+    "wpfAvailable": false,
+    "cargoAvailable": false,
+    "tauriAvailable": false,
+    "electronInstalled": false,
+    "nodeAvailable": true,
+    "nodeVersion": "v20.18.0",
+    "npmAvailable": true,
+    "pythonAvailable": true,
+    "venvDetected": false,
+    "pytestAvailable": true,
+    "hasPackageJson": false,
+    "hasTypeScript": false,
+    "hasReact": false,
+    "hasNextJs": false,
+    "hasVite": false,
+    "gitAvailable": true,
+    "modelSupportsTools": true,
+    "detectedAt": "2026-11-18T18:17:01.751Z"
+  }
+}

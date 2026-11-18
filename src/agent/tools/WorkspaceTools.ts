@@ -416,6 +416,48 @@ export function createWorkspaceTools(
             previewUrl: srv.port ? `http://127.0.0.1:${srv.port}` : '/workspace-preview/index.html',
           };
         }
+        // Intercept node/python server scripts or browser client scripts to prevent synchronous hangs
+        const scriptMatch = cmd.match(/^(?:node|python|py)\s+([^\s]+)/i);
+        if (scriptMatch) {
+          const scriptFile = scriptMatch[1].replace(/["']/g, '');
+          const root = workspaceManager.getRootPath();
+          const targetPath = path.isAbsolute(scriptFile) ? scriptFile : path.join(root, scriptFile);
+          if (fs.existsSync(targetPath)) {
+            try {
+              const content = fs.readFileSync(targetPath, 'utf8');
+              const isServer = /\.(listen|run|serve)\s*\(|http\.createserver|express\s*\(|fastify\s*\(|flask\s*\(/i.test(content);
+              const isBrowserScript = /\b(document\.|window\.|localStorage\.|sessionStorage\.)/i.test(content) && !content.includes('jsdom');
+
+              if (isBrowserScript && !isServer) {
+                return {
+                  command: cmd,
+                  exitCode: 0,
+                  stdout: `Client-side browser script detected ("${scriptFile}" references DOM APIs). MaxIDE serves this workspace live at /workspace-preview/index.html. Call open_preview to interact with it.`,
+                  stderr: '',
+                  durationMs: 5,
+                  safetyTier: 'SAFE',
+                  previewUrl: '/workspace-preview/index.html',
+                };
+              }
+
+              if (isServer) {
+                const portMatch = content.match(/\.(listen|run)\s*\(\s*(\d{4,5})/i);
+                const detectedPort = portMatch ? parseInt(portMatch[2], 10) : undefined;
+                const srv = await devServerManager.startServer('server-' + Date.now(), cmd, root, detectedPort);
+                return {
+                  command: cmd,
+                  exitCode: srv.success ? 0 : 1,
+                  stdout: srv.message + (detectedPort ? ` (Listening on port ${detectedPort})` : ''),
+                  stderr: srv.success ? '' : srv.message,
+                  durationMs: 500,
+                  safetyTier: 'SAFE',
+                  previewUrl: detectedPort ? `http://localhost:${detectedPort}` : '/workspace-preview/index.html',
+                };
+              }
+            } catch {}
+          }
+        }
+
         const autoBypass = context?.autonomyMode === 'AUTONOMOUS';
         return safeTerminal.executeCommand(cmd, { reason: args.reason, bypassApproval: autoBypass, timeoutMs: 60000 });
       },

@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { BanditContext, BanditSelection, ContextualBandit } from './ContextualBandit.js';
 import { ExperienceMemory, SimilarExperienceMatch } from './ExperienceMemory.js';
+import { ToolchainCapabilities, ToolchainDetector } from './ToolchainDetector.js';
 
 export type TargetPlatform =
   | 'NATIVE_WINDOWS'
@@ -53,6 +54,9 @@ export interface CandidateStrategy {
   weightedHeuristicScore: number;
   pros: string[];
   cons: string[];
+  feasible?: boolean;
+  missingCapabilities?: string[];
+  installInstructions?: string[];
 }
 
 export interface WorkspaceInspectionSummary {
@@ -83,12 +87,24 @@ export interface ObjectiveAnalysis {
   autoDefaultsApplied: boolean;
 }
 
+export interface FeasibilitySummary {
+  totalCandidates: number;
+  feasibleCount: number;
+  filteredOutCount: number;
+  filteredOutStrategies: Array<{ strategyId: string; missingCapabilities: string[]; installInstructions: string[] }>;
+  blockedByCapabilities: boolean;
+  blockerMessage?: string;
+  installInstructions: string[];
+}
+
 export interface DecisionPlan {
   id: string;
   projectId: string;
   createdAt: string;
   analysis: ObjectiveAnalysis;
   workspace: WorkspaceInspectionSummary;
+  capabilities: ToolchainCapabilities;
+  feasibility: FeasibilitySummary;
   candidates: CandidateStrategy[];
   selectedStrategy: CandidateStrategy;
   banditSelection: BanditSelection;
@@ -135,13 +151,48 @@ export class ReasoningDecisionEngine {
     modelId?: string;
     modelTier?: 'local-small' | 'local-medium' | 'cloud';
     allowCrossProject?: boolean;
+    capabilityOverrides?: Partial<ToolchainCapabilities>;
+    exploitOnly?: boolean;
   }): DecisionPlan {
     const projectId = input.projectId || ReasoningDecisionEngine.deriveProjectId(input.workspacePath);
     const workspace = this.inspectWorkspace(input.workspacePath, projectId);
+    const capabilities = ToolchainDetector.detect(input.workspacePath, input.capabilityOverrides);
     const analysis = this.analyzeObjective(input.prompt, workspace);
-    const candidates = this.generateFeasibleStrategies(analysis, workspace);
+    const rawCandidates = this.generateFeasibleStrategies(analysis, workspace);
 
-    // Retrieve verified similar experiences from SQLite ExperienceMemory
+    // STAGE 1: Capability-Aware Feasibility Filtering (infeasible strategies MUST NEVER be executed!)
+    const candidates: CandidateStrategy[] = rawCandidates.map((c) => {
+      const check = ToolchainDetector.checkStrategyFeasibility(c.id, capabilities);
+      return {
+        ...c,
+        feasible: check.feasible,
+        missingCapabilities: check.missingCapabilities,
+        installInstructions: check.installInstructions,
+      };
+    });
+
+    const feasibleCandidates = candidates.filter((c) => c.feasible !== false);
+    const filteredOut = candidates.filter((c) => c.feasible === false);
+    const blockedByCapabilities = feasibleCandidates.length === 0;
+    const allInstallInstructions = Array.from(new Set(filteredOut.flatMap((c) => c.installInstructions || [])));
+
+    const feasibility: FeasibilitySummary = {
+      totalCandidates: candidates.length,
+      feasibleCount: feasibleCandidates.length,
+      filteredOutCount: filteredOut.length,
+      filteredOutStrategies: filteredOut.map((c) => ({
+        strategyId: c.id,
+        missingCapabilities: c.missingCapabilities || [],
+        installInstructions: c.installInstructions || [],
+      })),
+      blockedByCapabilities,
+      blockerMessage: blockedByCapabilities
+        ? `No feasible ${analysis.targetPlatform} toolchain detected on this machine (${filteredOut.map((f) => `${f.id}: ${(f.missingCapabilities || []).join(', ')}`).join('; ')}). Refusing to substitute an unrelated web/HTML template.`
+        : undefined,
+      installInstructions: allInstallInstructions,
+    };
+
+    // Retrieve verified similar experiences from SQLite ExperienceMemory (with Mission 9 temporal decay & confidence!)
     const similarExperiences = this.memory.retrieveSimilarEpisodes(input.prompt, {
       projectId: input.allowCrossProject === false ? projectId : undefined,
       taskCategory: analysis.taskCategory,
@@ -149,9 +200,10 @@ export class ReasoningDecisionEngine {
       topK: 5,
     });
 
-    // Build heuristic prior map for Contextual Bandit, gently incorporating verified similar episodes
+    // STAGE 2: Adaptive Strategy Ranking strictly among FEASIBLE strategies
+    const pool = feasibleCandidates.length > 0 ? feasibleCandidates : candidates;
     const heuristicPriors: Record<string, number> = {};
-    for (const strat of candidates) {
+    for (const strat of pool) {
       let prior = strat.weightedHeuristicScore;
       const matchingVerified = similarExperiences.filter(
         (m) => m.episode.strategyId === strat.id && m.episode.verified && m.similarity >= 0.2
@@ -177,31 +229,36 @@ export class ReasoningDecisionEngine {
 
     const banditSelection = this.bandit.selectStrategy(
       banditCtx,
-      candidates.map((c) => c.id),
-      heuristicPriors
+      pool.map((c) => c.id),
+      heuristicPriors,
+      { exploitOnly: Boolean(input.exploitOnly) }
     );
 
     const selectedStrategy =
-      candidates.find((c) => c.id === banditSelection.selectedStrategyId) || candidates[0];
+      pool.find((c) => c.id === banditSelection.selectedStrategyId) || pool[0];
 
-    // Sort candidates by bandit final score for clean presentation
+    // Sort candidates: feasible ranked by bandit score first, filtered-out infeasible last
     const scoreMap = new Map(banditSelection.scores.map((s) => [s.strategyId, s.score]));
-    const rankedCandidates = [...candidates].sort(
-      (a, b) => (scoreMap.get(b.id) ?? b.weightedHeuristicScore) - (scoreMap.get(a.id) ?? a.weightedHeuristicScore)
-    );
+    const rankedCandidates = [...candidates].sort((a, b) => {
+      if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
+      return (scoreMap.get(b.id) ?? b.weightedHeuristicScore) - (scoreMap.get(a.id) ?? a.weightedHeuristicScore);
+    });
 
     const decisionRationale = this.buildDecisionRationale(
       analysis,
       selectedStrategy,
       rankedCandidates,
       banditSelection,
-      similarExperiences
+      similarExperiences,
+      feasibility
     );
 
     const promptGuidance = this.buildPromptGuidance(
       analysis,
       selectedStrategy,
-      similarExperiences
+      similarExperiences,
+      capabilities,
+      feasibility
     );
 
     return {
@@ -210,6 +267,8 @@ export class ReasoningDecisionEngine {
       createdAt: new Date().toISOString(),
       analysis,
       workspace,
+      capabilities,
+      feasibility,
       candidates: rankedCandidates,
       selectedStrategy,
       banditSelection,
@@ -871,13 +930,17 @@ export class ReasoningDecisionEngine {
     selected: CandidateStrategy,
     ranked: CandidateStrategy[],
     banditSelection: BanditSelection,
-    similar: SimilarExperienceMatch[]
+    similar: SimilarExperienceMatch[],
+    feasibility: FeasibilitySummary
   ): string {
-    const runnerUp = ranked.find((r) => r.id !== selected.id);
+    if (feasibility.blockedByCapabilities) {
+      return feasibility.blockerMessage || 'Blocked: required toolchain is unavailable on this host.';
+    }
+    const runnerUp = ranked.find((r) => r.id !== selected.id && r.feasible !== false);
     const verifiedMatches = similar.filter((s) => s.episode.verified).length;
     const parts: string[] = [
       `Selected "${selected.name}" (${selected.id}) for ${analysis.taskCategory} on ${analysis.targetPlatform}.`,
-      `Evaluated ${ranked.length} feasible strategies across 9 criteria (weighted heuristic=${selected.weightedHeuristicScore.toFixed(2)}).`,
+      `Capability filter: ${feasibility.feasibleCount}/${feasibility.totalCandidates} strategies feasible${feasibility.filteredOutCount > 0 ? ` (excluded infeasible: ${feasibility.filteredOutStrategies.map((f) => f.strategyId).join(', ')})` : ''}.`,
     ];
     if (runnerUp) {
       parts.push(`Preferred over "${runnerUp.name}" (heuristic=${runnerUp.weightedHeuristicScore.toFixed(2)}).`);
@@ -892,12 +955,15 @@ export class ReasoningDecisionEngine {
   private buildPromptGuidance(
     analysis: ObjectiveAnalysis,
     selected: CandidateStrategy,
-    similar: SimilarExperienceMatch[]
+    similar: SimilarExperienceMatch[],
+    capabilities: ToolchainCapabilities,
+    feasibility: FeasibilitySummary
   ): string {
     const lines: string[] = [
       `=== ADAPTIVE REASONING & STRATEGY DIRECTIVE ===`,
       `Task Category: ${analysis.taskCategory} | Target Platform: ${analysis.targetPlatform}`,
       `Selected Strategy: ${selected.name} (${selected.id})`,
+      `Feasible Strategies: ${feasibility.feasibleCount}/${feasibility.totalCandidates}`,
       `Execution Stages:`,
       ...selected.executionStages.map((s, idx) => `  ${idx + 1}. ${s}`),
     ];
@@ -906,6 +972,11 @@ export class ReasoningDecisionEngine {
       lines.push(
         `CRITICAL PLATFORM CONSTRAINT: The user requested a NATIVE WINDOWS desktop application. Do NOT substitute a browser-only HTML file. Build and compile a real native Windows desktop artifact.`
       );
+      if (selected.id === 'native-winforms-csc' && capabilities.cscPath) {
+        lines.push(
+          `NATIVE WINDOWS COMPILER DIRECTIVE: Use C# 5 compatible syntax ONLY (NO C# 6+ $"interpolation", NO expression-bodied => members, NO .csproj/XAML). Use System.Windows.Forms + System.Drawing in Program.cs and compile via run_command: "${capabilities.cscPath}" /target:winexe /out:App.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll Program.cs`
+        );
+      }
     }
     if (analysis.taskCategory === 'SELF_DIRECTED_IMPROVEMENT') {
       lines.push(
@@ -919,7 +990,7 @@ export class ReasoningDecisionEngine {
       for (const m of usefulMemories) {
         const tag = m.episode.verified ? 'VERIFIED_SUCCESS' : m.episode.status;
         lines.push(
-          `  - [${tag}, reward=${m.episode.reward.toFixed(2)}, sim=${m.similarity.toFixed(2)}] strategy=${m.episode.strategyId}: ${m.episode.summary.slice(0, 140)}`
+          `  - [${tag}, reward=${m.episode.reward.toFixed(2)}, eff=${(m.effectiveWeight ?? m.similarity).toFixed(2)}] strategy=${m.episode.strategyId}: ${m.episode.summary.slice(0, 140)}`
         );
       }
     }

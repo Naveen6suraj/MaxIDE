@@ -9,6 +9,7 @@
  * schema versioning, user edit/delete/clear/export, and mandatory secret sanitization.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -16,6 +17,36 @@ import { PolicyGovernance } from './PolicyGovernance.js';
 
 const _require = createRequire(import.meta.url);
 const initSqlJs: any = _require('sql.js');
+
+export type EvidenceSource =
+  | 'SIMULATED_BENCHMARK'
+  | 'CONTROLLED_LIVE_EXPERIMENT'
+  | 'USER_ENGINEERING_EXECUTION';
+
+export type MemoryConfidenceTier =
+  | 'FULLY_VERIFIED'
+  | 'PARTIALLY_VERIFIED'
+  | 'UNVERIFIED'
+  | 'USER_REJECTED'
+  | 'SUPERSEDED';
+
+export interface RecencyDecayConfig {
+  halfLifeDays: number;
+  minRecencyFloor: number;
+}
+
+export const DEFAULT_RECENCY_DECAY: RecencyDecayConfig = {
+  halfLifeDays: 45,
+  minRecencyFloor: 0.25,
+};
+
+export const CONFIDENCE_TIER_WEIGHTS: Record<MemoryConfidenceTier, number> = {
+  FULLY_VERIFIED: 1.0,
+  PARTIALLY_VERIFIED: 0.7,
+  UNVERIFIED: 0.35,
+  USER_REJECTED: 0.15,
+  SUPERSEDED: 0.2,
+};
 
 export interface EpisodicRecord {
   id: string;
@@ -36,6 +67,11 @@ export interface EpisodicRecord {
   summary: string;
   version: number;
   createdAt: string;
+  fingerprint?: string;
+  repeatCount?: number;
+  confidenceTier?: MemoryConfidenceTier;
+  evidenceSource?: EvidenceSource;
+  deduplicated?: boolean;
 }
 
 export interface SemanticRecord {
@@ -66,6 +102,10 @@ export interface ProceduralRecord {
 export interface SimilarExperienceMatch {
   episode: EpisodicRecord;
   similarity: number;
+  recencyWeight?: number;
+  confidenceWeight?: number;
+  effectiveWeight?: number;
+  ageDays?: number;
 }
 
 export class ExperienceMemory {
@@ -73,10 +113,22 @@ export class ExperienceMemory {
   private db: any = null;
   private readyPromise: Promise<void>;
   private flushSeq: number = 0;
+  private recencyConfig: RecencyDecayConfig = { ...DEFAULT_RECENCY_DECAY };
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, recencyConfig?: Partial<RecencyDecayConfig>) {
     this.dbPath = path.resolve(dbPath);
+    if (recencyConfig) this.recencyConfig = { ...DEFAULT_RECENCY_DECAY, ...recencyConfig };
     this.readyPromise = this.initialize();
+  }
+
+  public getRecencyConfig(): RecencyDecayConfig {
+    return { ...this.recencyConfig };
+  }
+
+  public setRecencyConfig(cfg: Partial<RecencyDecayConfig>): RecencyDecayConfig {
+    if (cfg.halfLifeDays !== undefined) this.recencyConfig.halfLifeDays = Math.max(1, cfg.halfLifeDays);
+    if (cfg.minRecencyFloor !== undefined) this.recencyConfig.minRecencyFloor = Math.max(0.05, Math.min(1.0, cfg.minRecencyFloor));
+    return this.getRecencyConfig();
   }
 
   public async ready(): Promise<void> {
@@ -269,7 +321,34 @@ export class ExperienceMemory {
         reason TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS post_task_reviews (
+        id TEXT PRIMARY KEY,
+        episode_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        strategy_id TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        evidence_source TEXT NOT NULL DEFAULT 'USER_ENGINEERING_EXECUTION',
+        requirements_met INTEGER NOT NULL DEFAULT 0,
+        unnecessary_changes_json TEXT NOT NULL DEFAULT '[]',
+        failed_approaches_json TEXT NOT NULL DEFAULT '[]',
+        improvements_json TEXT NOT NULL DEFAULT '[]',
+        offline_eval_scheduled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
     `);
+
+    // Backward-compatible Mission 9 schema migrations for existing SQLite files
+    const migrations = [
+      `ALTER TABLE episodic_memory ADD COLUMN fingerprint TEXT`,
+      `ALTER TABLE episodic_memory ADD COLUMN repeat_count INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE episodic_memory ADD COLUMN confidence_tier TEXT NOT NULL DEFAULT 'UNVERIFIED'`,
+      `ALTER TABLE episodic_memory ADD COLUMN evidence_source TEXT NOT NULL DEFAULT 'USER_ENGINEERING_EXECUTION'`,
+    ];
+    for (const sql of migrations) {
+      try { this.db.run(sql); } catch {}
+    }
+    try { this.db.run(`CREATE INDEX IF NOT EXISTS idx_episodic_fingerprint ON episodic_memory(fingerprint)`); } catch {}
   }
 
   /**
@@ -306,11 +385,53 @@ export class ExperienceMemory {
     if (autoFlush) this.flush();
   }
 
+  public static computeEpisodeFingerprint(input: {
+    projectId: string;
+    taskCategory: string;
+    prompt: string;
+    strategyId: string;
+    status: string;
+    filesChanged?: string[];
+  }): string {
+    const normPrompt = String(input.prompt || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .slice(0, 240);
+    const normFiles = [...(input.filesChanged || [])]
+      .map((f) => String(f).trim().toLowerCase())
+      .sort()
+      .join(',');
+    const payload = [
+      input.projectId.toLowerCase().trim(),
+      input.taskCategory.toUpperCase().trim(),
+      normPrompt,
+      input.strategyId.toLowerCase().trim(),
+      input.status.toUpperCase().trim(),
+      normFiles,
+    ].join('|');
+    return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 24);
+  }
+
+  public static classifyConfidenceTier(params: {
+    verified: boolean;
+    status: EpisodicRecord['status'];
+    userFeedbackRating?: number;
+    superseded?: boolean;
+  }): MemoryConfidenceTier {
+    if (params.superseded) return 'SUPERSEDED';
+    if (params.userFeedbackRating === -1) return 'USER_REJECTED';
+    if (params.verified && params.status === 'COMPLETED') return 'FULLY_VERIFIED';
+    if (params.verified && params.status === 'PARTIALLY_COMPLETED') return 'PARTIALLY_VERIFIED';
+    return 'UNVERIFIED';
+  }
+
   // =========================================================================
-  // EPISODIC MEMORY
+  // EPISODIC MEMORY (WITH FINGERPRINT DEDUPLICATION & CONFIDENCE TIERS)
   // =========================================================================
-  public recordEpisode(input: Omit<EpisodicRecord, 'id' | 'version' | 'createdAt'> & { id?: string }): EpisodicRecord {
-    const id = input.id || `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  public recordEpisode(
+    input: Omit<EpisodicRecord, 'id' | 'version' | 'createdAt'> & { id?: string; disableDeduplication?: boolean }
+  ): EpisodicRecord {
     const createdAt = new Date().toISOString();
     const safePrompt = PolicyGovernance.sanitizeSecretText(input.prompt);
     const safeSummary = PolicyGovernance.sanitizeSecretText(input.summary);
@@ -319,11 +440,80 @@ export class ExperienceMemory {
 
     // Only allow verified=true when status is COMPLETED or PARTIALLY_COMPLETED
     const verified = Boolean(input.verified && (input.status === 'COMPLETED' || input.status === 'PARTIALLY_COMPLETED'));
+    const confidenceTier =
+      input.confidenceTier ||
+      ExperienceMemory.classifyConfidenceTier({
+        verified,
+        status: input.status,
+        userFeedbackRating: input.userFeedbackRating,
+      });
+    const evidenceSource: EvidenceSource = input.evidenceSource || 'USER_ENGINEERING_EXECUTION';
+    const fingerprint =
+      input.fingerprint ||
+      ExperienceMemory.computeEpisodeFingerprint({
+        projectId: input.projectId,
+        taskCategory: input.taskCategory,
+        prompt: safePrompt,
+        strategyId: input.strategyId,
+        status: input.status,
+        filesChanged: safeFiles,
+      });
+
+    // Safe duplicate merging when no explicit unique ID collision override is forced
+    if (!input.disableDeduplication) {
+      const existing = this.queryAll(
+        `SELECT * FROM episodic_memory WHERE fingerprint = ? AND project_id = ? LIMIT 1`,
+        [fingerprint, input.projectId]
+      )[0];
+      if (existing && (!input.id || input.id === existing.id)) {
+        const prevRepeat = Number(existing.repeat_count || 1);
+        const nextRepeat = prevRepeat + 1;
+        const prevReward = Number(existing.reward || 0);
+        const mergedReward = Math.round(((prevReward * prevRepeat + input.reward) / nextRepeat) * 10000) / 10000;
+        const prevDur = Number(existing.duration_ms || 0);
+        const mergedDur = Math.max(0, Math.round((prevDur * prevRepeat + (input.durationMs || 0)) / nextRepeat));
+        const nextVer = Number(existing.version || 1) + 1;
+
+        this.execute(
+          `UPDATE episodic_memory
+           SET reward = ?, duration_ms = ?, repeat_count = ?, version = ?, confidence_tier = ?, summary = ?, created_at = ?
+           WHERE id = ?`,
+          [mergedReward, mergedDur, nextRepeat, nextVer, confidenceTier, safeSummary || existing.summary, createdAt, existing.id]
+        );
+        return {
+          id: existing.id,
+          projectId: input.projectId,
+          taskCategory: input.taskCategory,
+          platform: input.platform || 'WEB_APP',
+          prompt: safePrompt,
+          strategyId: input.strategyId,
+          modelId: input.modelId,
+          status: input.status,
+          verified,
+          reward: mergedReward,
+          durationMs: mergedDur,
+          filesChanged: safeFiles,
+          toolFailures: safeFailures,
+          testPassed: Boolean(input.testPassed),
+          userFeedbackRating: input.userFeedbackRating,
+          summary: safeSummary || existing.summary,
+          version: nextVer,
+          createdAt,
+          fingerprint,
+          repeatCount: nextRepeat,
+          confidenceTier,
+          evidenceSource,
+          deduplicated: true,
+        };
+      }
+    }
+
+    const id = input.id || `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     this.execute(
       `INSERT OR REPLACE INTO episodic_memory
-       (id, project_id, task_category, platform, prompt, strategy_id, model_id, status, verified, reward, duration_ms, files_changed_json, tool_failures_json, test_passed, user_feedback_rating, summary, version, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+       (id, project_id, task_category, platform, prompt, strategy_id, model_id, status, verified, reward, duration_ms, files_changed_json, tool_failures_json, test_passed, user_feedback_rating, summary, version, created_at, fingerprint, repeat_count, confidence_tier, evidence_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1, ?, ?)`,
       [
         id,
         input.projectId,
@@ -342,6 +532,9 @@ export class ExperienceMemory {
         input.userFeedbackRating ?? null,
         safeSummary,
         createdAt,
+        fingerprint,
+        confidenceTier,
+        evidenceSource,
       ]
     );
 
@@ -364,7 +557,20 @@ export class ExperienceMemory {
       summary: safeSummary,
       version: 1,
       createdAt,
+      fingerprint,
+      repeatCount: 1,
+      confidenceTier,
+      evidenceSource,
+      deduplicated: false,
     };
+  }
+
+  public markEpisodeSuperseded(id: string): boolean {
+    this.execute(
+      `UPDATE episodic_memory SET confidence_tier = 'SUPERSEDED', version = version + 1 WHERE id = ?`,
+      [id]
+    );
+    return true;
   }
 
   public getEpisodes(options: { projectId?: string; taskCategory?: string; verifiedOnly?: boolean; limit?: number } = {}): EpisodicRecord[] {
@@ -411,16 +617,29 @@ export class ExperienceMemory {
       summary: r.summary || '',
       version: Number(r.version || 1),
       createdAt: r.created_at,
+      fingerprint: r.fingerprint || undefined,
+      repeatCount: Number(r.repeat_count || 1),
+      confidenceTier: (r.confidence_tier as MemoryConfidenceTier) || (r.verified ? 'FULLY_VERIFIED' : 'UNVERIFIED'),
+      evidenceSource: (r.evidence_source as EvidenceSource) || 'USER_ENGINEERING_EXECUTION',
     };
   }
 
   /**
-   * Lightweight local token cosine similarity retrieval (zero GPU needed).
-   * Enforces project isolation when projectId is supplied.
+   * Lightweight local token cosine similarity retrieval with Mission 9 temporal recency decay
+   * & verification confidence weighting:
+   *   effectiveWeight = verificationConfidence * recencyWeight * relevanceWeight
+   * Older high-quality verified memories remain retrievable via minRecencyFloor.
    */
   public retrieveSimilarEpisodes(
     query: string,
-    options: { projectId?: string; taskCategory?: string; verifiedOnly?: boolean; topK?: number; minSimilarity?: number } = {}
+    options: {
+      projectId?: string;
+      taskCategory?: string;
+      verifiedOnly?: boolean;
+      topK?: number;
+      minSimilarity?: number;
+      nowMs?: number;
+    } = {}
   ): SimilarExperienceMatch[] {
     const candidates = this.getEpisodes({
       projectId: options.projectId,
@@ -431,20 +650,43 @@ export class ExperienceMemory {
     const qTokens = this.tokenize(query);
     if (qTokens.size === 0 || candidates.length === 0) return [];
 
+    const nowMs = options.nowMs ?? Date.now();
+    const { halfLifeDays, minRecencyFloor } = this.recencyConfig;
     const scored: SimilarExperienceMatch[] = [];
+
     for (const ep of candidates) {
       const docText = `${ep.prompt} ${ep.taskCategory} ${ep.platform} ${ep.strategyId} ${ep.summary}`;
       const dTokens = this.tokenize(docText);
-      let sim = this.cosineSimilarity(qTokens, dTokens);
+      let relevance = this.cosineSimilarity(qTokens, dTokens);
       if (options.taskCategory && ep.taskCategory === options.taskCategory) {
-        sim = Math.min(1.0, sim + 0.15);
+        relevance = Math.min(1.0, relevance + 0.15);
       }
-      if (sim >= (options.minSimilarity ?? 0.08)) {
-        scored.push({ episode: ep, similarity: Math.round(sim * 1000) / 1000 });
-      }
+      if (relevance < (options.minSimilarity ?? 0.08)) continue;
+
+      const createdMs = Date.parse(ep.createdAt);
+      const ageDays = Number.isFinite(createdMs) ? Math.max(0, (nowMs - createdMs) / 86_400_000) : 0;
+      const recencyWeight = Math.max(minRecencyFloor, Math.exp((-Math.LN2 * ageDays) / halfLifeDays));
+      const tier: MemoryConfidenceTier =
+        ep.confidenceTier ||
+        ExperienceMemory.classifyConfidenceTier({
+          verified: ep.verified,
+          status: ep.status,
+          userFeedbackRating: ep.userFeedbackRating,
+        });
+      const confidenceWeight = CONFIDENCE_TIER_WEIGHTS[tier] ?? 0.35;
+      const effectiveWeight = relevance * recencyWeight * confidenceWeight;
+
+      scored.push({
+        episode: ep,
+        similarity: Math.round(relevance * 1000) / 1000,
+        recencyWeight: Math.round(recencyWeight * 1000) / 1000,
+        confidenceWeight,
+        effectiveWeight: Math.round(effectiveWeight * 1000) / 1000,
+        ageDays: Math.round(ageDays * 10) / 10,
+      });
     }
 
-    scored.sort((a, b) => b.similarity - a.similarity);
+    scored.sort((a, b) => (b.effectiveWeight ?? b.similarity) - (a.effectiveWeight ?? a.similarity));
     return scored.slice(0, options.topK || 5);
   }
 
@@ -628,11 +870,20 @@ export class ExperienceMemory {
     if (ep) {
       const delta = rating > 0 ? 0.15 : rating < 0 ? -0.25 : 0;
       updatedReward = Math.max(-1, Math.min(1, Number(ep.reward || 0) + delta));
-      this.execute(
-        `UPDATE episodic_memory SET user_feedback_rating = ?, reward = ?, version = version + 1 WHERE id = ?`,
-        [rating, updatedReward, episodeId],
-        false
-      );
+      const nextTier = rating < 0 ? 'USER_REJECTED' : undefined;
+      if (nextTier) {
+        this.execute(
+          `UPDATE episodic_memory SET user_feedback_rating = ?, reward = ?, confidence_tier = ?, version = version + 1 WHERE id = ?`,
+          [rating, updatedReward, nextTier, episodeId],
+          false
+        );
+      } else {
+        this.execute(
+          `UPDATE episodic_memory SET user_feedback_rating = ?, reward = ?, version = version + 1 WHERE id = ?`,
+          [rating, updatedReward, episodeId],
+          false
+        );
+      }
     }
     this.flush();
     return { id, updatedReward };
@@ -677,7 +928,7 @@ export class ExperienceMemory {
 
   public recordValidationRun(input: {
     id?: string;
-    source: 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION';
+    source: EvidenceSource | 'REAL_AGENT_EXECUTION';
     benchmarkVersion: string;
     algorithm: string;
     approved: boolean;
@@ -691,13 +942,19 @@ export class ExperienceMemory {
   }): string {
     const id = input.id || `valrun-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const safeSummary = JSON.stringify(PolicyGovernance.sanitizeObject(input.summary));
+    const normalizedSource: EvidenceSource =
+      input.source === 'REAL_AGENT_EXECUTION' || input.source === 'CONTROLLED_LIVE_EXPERIMENT'
+        ? 'CONTROLLED_LIVE_EXPERIMENT'
+        : input.source === 'USER_ENGINEERING_EXECUTION'
+        ? 'USER_ENGINEERING_EXECUTION'
+        : 'SIMULATED_BENCHMARK';
     this.execute(
       `INSERT OR REPLACE INTO validation_runs
        (id, source, benchmark_version, algorithm, approved, baseline_completion_pct, learned_completion_pct, baseline_reward, learned_reward, ci95_low, ci95_high, summary_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
-        input.source,
+        normalizedSource,
         input.benchmarkVersion,
         input.algorithm,
         input.approved ? 1 : 0,
@@ -716,7 +973,7 @@ export class ExperienceMemory {
 
   public getValidationRuns(limit: number = 30): Array<{
     id: string;
-    source: 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION';
+    source: EvidenceSource;
     benchmarkVersion: string;
     algorithm: string;
     approved: boolean;
@@ -732,9 +989,15 @@ export class ExperienceMemory {
     return this.queryAll(`SELECT * FROM validation_runs ORDER BY created_at DESC LIMIT ?`, [limit]).map((r) => {
       let summary: Record<string, any> = {};
       try { summary = JSON.parse(r.summary_json || '{}'); } catch {}
+      const src: EvidenceSource =
+        r.source === 'REAL_AGENT_EXECUTION' || r.source === 'CONTROLLED_LIVE_EXPERIMENT'
+          ? 'CONTROLLED_LIVE_EXPERIMENT'
+          : r.source === 'USER_ENGINEERING_EXECUTION'
+          ? 'USER_ENGINEERING_EXECUTION'
+          : 'SIMULATED_BENCHMARK';
       return {
         id: r.id,
-        source: (r.source === 'REAL_AGENT_EXECUTION' ? 'REAL_AGENT_EXECUTION' : 'SIMULATED_BENCHMARK') as 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION',
+        source: src,
         benchmarkVersion: r.benchmark_version,
         algorithm: r.algorithm,
         approved: Boolean(r.approved),
@@ -748,6 +1011,131 @@ export class ExperienceMemory {
         createdAt: r.created_at,
       };
     });
+  }
+
+  public recordPostTaskReview(input: {
+    episodeId: string;
+    projectId: string;
+    strategyId: string;
+    intent: string;
+    evidenceSource: EvidenceSource;
+    requirementsMet: boolean;
+    unnecessaryChanges: string[];
+    failedApproaches: string[];
+    improvements: string[];
+    offlineEvalScheduled: boolean;
+  }): string {
+    const id = `rev-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    this.execute(
+      `INSERT INTO post_task_reviews
+       (id, episode_id, project_id, strategy_id, intent, evidence_source, requirements_met, unnecessary_changes_json, failed_approaches_json, improvements_json, offline_eval_scheduled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.episodeId,
+        input.projectId,
+        input.strategyId,
+        input.intent,
+        input.evidenceSource,
+        input.requirementsMet ? 1 : 0,
+        JSON.stringify(PolicyGovernance.sanitizeObject(input.unnecessaryChanges)),
+        JSON.stringify(PolicyGovernance.sanitizeObject(input.failedApproaches)),
+        JSON.stringify(PolicyGovernance.sanitizeObject(input.improvements)),
+        input.offlineEvalScheduled ? 1 : 0,
+        new Date().toISOString(),
+      ]
+    );
+    return id;
+  }
+
+  public getPostTaskReviews(limit: number = 25): Array<{
+    id: string;
+    episodeId: string;
+    projectId: string;
+    strategyId: string;
+    intent: string;
+    evidenceSource: EvidenceSource;
+    requirementsMet: boolean;
+    unnecessaryChanges: string[];
+    failedApproaches: string[];
+    improvements: string[];
+    offlineEvalScheduled: boolean;
+    createdAt: string;
+  }> {
+    return this.queryAll(`SELECT * FROM post_task_reviews ORDER BY created_at DESC LIMIT ?`, [limit]).map((r) => {
+      const parse = (s: any) => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+      return {
+        id: r.id,
+        episodeId: r.episode_id,
+        projectId: r.project_id,
+        strategyId: r.strategy_id,
+        intent: r.intent,
+        evidenceSource: (r.evidence_source as EvidenceSource) || 'USER_ENGINEERING_EXECUTION',
+        requirementsMet: Boolean(r.requirements_met),
+        unnecessaryChanges: parse(r.unnecessary_changes_json),
+        failedApproaches: parse(r.failed_approaches_json),
+        improvements: parse(r.improvements_json),
+        offlineEvalScheduled: Boolean(r.offline_eval_scheduled),
+        createdAt: r.created_at,
+      };
+    });
+  }
+
+  public getMemoryQualityStats(projectId?: string): {
+    uniqueEpisodes: number;
+    duplicatesPrevented: number;
+    freshCount30d: number;
+    staleCount90d: number;
+    avgRecencyWeight: number;
+    confidenceTierCounts: Record<MemoryConfidenceTier, number>;
+    evidenceSourceCounts: Record<EvidenceSource, number>;
+  } {
+    const eps = this.getEpisodes({ projectId, limit: 5000 });
+    const now = Date.now();
+    const { halfLifeDays, minRecencyFloor } = this.recencyConfig;
+    let duplicatesPrevented = 0;
+    let freshCount30d = 0;
+    let staleCount90d = 0;
+    let recencySum = 0;
+    const confidenceTierCounts: Record<MemoryConfidenceTier, number> = {
+      FULLY_VERIFIED: 0,
+      PARTIALLY_VERIFIED: 0,
+      UNVERIFIED: 0,
+      USER_REJECTED: 0,
+      SUPERSEDED: 0,
+    };
+    const evidenceSourceCounts: Record<EvidenceSource, number> = {
+      SIMULATED_BENCHMARK: 0,
+      CONTROLLED_LIVE_EXPERIMENT: 0,
+      USER_ENGINEERING_EXECUTION: 0,
+    };
+
+    for (const ep of eps) {
+      const rep = Number(ep.repeatCount || 1);
+      if (rep > 1) duplicatesPrevented += rep - 1;
+      const ageDays = Math.max(0, (now - Date.parse(ep.createdAt || '')) / 86_400_000);
+      if (Number.isFinite(ageDays)) {
+        if (ageDays <= 30) freshCount30d++;
+        if (ageDays >= 90) staleCount90d++;
+        recencySum += Math.max(minRecencyFloor, Math.exp((-Math.LN2 * ageDays) / halfLifeDays));
+      } else {
+        recencySum += 1;
+      }
+      const tier = ep.confidenceTier || 'UNVERIFIED';
+      if (confidenceTierCounts[tier] !== undefined) confidenceTierCounts[tier]++;
+      const src = ep.evidenceSource || 'USER_ENGINEERING_EXECUTION';
+      if (evidenceSourceCounts[src] !== undefined) evidenceSourceCounts[src]++;
+    }
+
+    return {
+      uniqueEpisodes: eps.length,
+      duplicatesPrevented,
+      freshCount30d,
+      staleCount90d,
+      avgRecencyWeight: eps.length > 0 ? Math.round((recencySum / eps.length) * 1000) / 1000 : 1,
+      confidenceTierCounts,
+      evidenceSourceCounts,
+    };
   }
 
   public deleteRecord(table: 'episodic_memory' | 'semantic_memory' | 'procedural_memory', id: string): boolean {

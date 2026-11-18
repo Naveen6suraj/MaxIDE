@@ -10,10 +10,12 @@
  */
 
 import { BanditAlgorithm, BanditContext, ContextualBandit, PolicyVersionRecord } from './ContextualBandit.js';
-import { ExperienceMemory, EpisodicRecord, ProceduralRecord, SemanticRecord } from './ExperienceMemory.js';
+import { EvidenceSource, ExperienceMemory, EpisodicRecord, ProceduralRecord, SemanticRecord } from './ExperienceMemory.js';
 import { ExecutionEvidenceInput, GovernancePolicy, PolicyGovernance } from './PolicyGovernance.js';
 import { DecisionPlan, ReasoningDecisionEngine } from './ReasoningDecisionEngine.js';
 import { EvaluationRecord, RewardWeights, SelfEvaluationEngine } from './SelfEvaluationEngine.js';
+import { PostTaskReviewResult, SelfImprovementReviewer } from './SelfImprovementReviewer.js';
+import { ToolchainCapabilities } from './ToolchainDetector.js';
 
 export interface OfflineBenchmarkScenario {
   id: string;
@@ -58,6 +60,10 @@ export interface CompleteAndLearnInput {
   evidence: ExecutionEvidenceInput;
   requirementCoverageEstimate: number;
   summary: string;
+  intent?: string;
+  evidenceSource?: EvidenceSource;
+  toolFailureMessages?: string[];
+  repairAttempts?: number;
   cancelled?: boolean;
   blocked?: boolean;
   blockerReason?: string;
@@ -71,6 +77,7 @@ export interface CompleteAndLearnResult {
   learningRecorded: boolean;
   strategyId: string;
   contextKey: string;
+  review?: PostTaskReviewResult;
 }
 
 export interface ModelPerformanceStat {
@@ -87,21 +94,28 @@ export interface IntelligenceDashboardSnapshot {
   generatedAt: string;
   governance: GovernancePolicy;
   banditAlgorithm: BanditAlgorithm;
+  explorationConfig: ReturnType<ContextualBandit['getExplorationConfig']>;
   rewardWeights: RewardWeights;
   memoryStats: ReturnType<ExperienceMemory['getStats']>;
+  memoryQualityStats: ReturnType<ExperienceMemory['getMemoryQualityStats']>;
   lastDecisionPlan: DecisionPlan | null;
   episodicMemory: EpisodicRecord[];
   semanticMemory: SemanticRecord[];
   proceduralMemory: ProceduralRecord[];
   evaluations: EvaluationRecord[];
+  postTaskReviews: ReturnType<ExperienceMemory['getPostTaskReviews']>;
   strategyStats: ReturnType<ContextualBandit['getAllArmStats']>;
   modelPerformance: ModelPerformanceStat[];
   toolPerformance: ReturnType<ExperienceMemory['getToolTelemetry']>;
   policyVersions: PolicyVersionRecord[];
   rollbackHistory: ReturnType<ContextualBandit['getRollbackHistory']>;
   validationRuns: ReturnType<ExperienceMemory['getValidationRuns']>;
+  simulatedBenchmarkRuns: ReturnType<ExperienceMemory['getValidationRuns']>;
+  controlledLiveRuns: ReturnType<ExperienceMemory['getValidationRuns']>;
   failedLearningExperiments: ReturnType<ExperienceMemory['getValidationRuns']>;
   strategyDistribution: Array<{ strategyId: string; pulls: number; sharePct: number; verifiedSuccessRate: number }>;
+  feasibilityStats: { totalPlans: number; totalCandidatesEvaluated: number; totalFilteredOut: number; blockedCount: number };
+  intentStats: Record<string, number>;
   lastOfflineEval: OfflineEvaluationReport | null;
 }
 
@@ -348,8 +362,11 @@ export class AdaptiveIntelligenceCoordinator {
   public readonly bandit: ContextualBandit;
   public readonly reasoner: ReasoningDecisionEngine;
   public readonly improver: ContinuousImprovementEngine;
+  public readonly reviewer: SelfImprovementReviewer;
 
   private lastDecisionPlan: DecisionPlan | null = null;
+  private feasibilityStats = { totalPlans: 0, totalCandidatesEvaluated: 0, totalFilteredOut: 0, blockedCount: 0 };
+  private intentStats: Record<string, number> = {};
 
   constructor(dbPath: string, options?: { algorithm?: BanditAlgorithm; deterministicSeed?: number }) {
     this.governance = new PolicyGovernance();
@@ -366,6 +383,7 @@ export class AdaptiveIntelligenceCoordinator {
       this.evaluator,
       this.governance
     );
+    this.reviewer = new SelfImprovementReviewer(this.memory, this.governance);
   }
 
   public async ready(): Promise<void> {
@@ -397,12 +415,23 @@ export class AdaptiveIntelligenceCoordinator {
     projectId?: string;
     modelId?: string;
     modelTier?: 'local-small' | 'local-medium' | 'cloud';
+    intent?: string;
+    capabilityOverrides?: Partial<ToolchainCapabilities>;
+    exploitOnly?: boolean;
   }): DecisionPlan {
     const plan = this.reasoner.plan({
       ...input,
       allowCrossProject: this.governance.getPolicy().allowCrossProjectProceduralTransfer,
     });
     this.lastDecisionPlan = plan;
+
+    // Record real feasibility & intent telemetry
+    this.feasibilityStats.totalPlans++;
+    this.feasibilityStats.totalCandidatesEvaluated += plan.feasibility.totalCandidates;
+    this.feasibilityStats.totalFilteredOut += plan.feasibility.filteredOutCount;
+    if (plan.feasibility.blockedByCapabilities) this.feasibilityStats.blockedCount++;
+    const intentKey = input.intent || plan.analysis.taskCategory;
+    this.intentStats[intentKey] = (this.intentStats[intentKey] || 0) + 1;
 
     // Persist discovered project stack into Semantic Memory when learning is enabled
     if (this.governance.isLearningEnabled() && plan.workspace.detectedStack.length > 0) {
@@ -418,8 +447,9 @@ export class AdaptiveIntelligenceCoordinator {
   }
 
   /**
-   * Steps 2–5 of the Safe Learning Loop:
-   * Collect trusted evidence -> Evaluate -> Persist Experience -> Update Bandit Arms & Procedural Memory.
+   * Steps 2–5 of the Safe Learning Loop + Part 6 Post-Task Self-Improvement Review:
+   * Collect trusted evidence -> Evaluate -> Guard against unverified positive rewards ->
+   * Persist Experience (deduplicated) -> Update Bandit & Procedures -> Run Post-Task Review.
    */
   public completeAndLearn(input: CompleteAndLearnInput): CompleteAndLearnResult {
     const episodeId = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -433,6 +463,7 @@ export class AdaptiveIntelligenceCoordinator {
     };
     const contextKey = ContextualBandit.buildContextKey(banditCtx);
     const currentArm = this.bandit.getArm(contextKey, strategy.id);
+    const evidenceSource: EvidenceSource = input.evidenceSource || 'USER_ENGINEERING_EXECUTION';
 
     const evaluation = this.evaluator.evaluate({
       episodeId,
@@ -447,10 +478,13 @@ export class AdaptiveIntelligenceCoordinator {
       evidence: input.evidence,
     });
 
+    // Strict Part 5 Guard: Prevent an unverified LLM response from generating a positive learning reward
+    const learningReward = evaluation.verified ? evaluation.reward : Math.min(0, evaluation.reward);
     const learningEnabled = this.governance.isLearningEnabled();
+    let review: PostTaskReviewResult | undefined;
 
     if (learningEnabled) {
-      // Store Episode in SQLite (secret-scrubbed)
+      // Store Episode in SQLite (secret-scrubbed + deduplicated + confidence-tiered + source-labeled)
       this.memory.recordEpisode({
         id: episodeId,
         projectId: plan.projectId,
@@ -461,16 +495,17 @@ export class AdaptiveIntelligenceCoordinator {
         modelId: input.modelId || 'unknown',
         status: evaluation.status,
         verified: evaluation.verified,
-        reward: evaluation.reward,
+        reward: learningReward,
         durationMs: input.evidence.durationMs,
         filesChanged: input.evidence.filesModified,
         toolFailures: input.evidence.repeatedFailureCount > 0 ? [`repeated_failures:${input.evidence.repeatedFailureCount}`] : [],
         testPassed: input.evidence.testsPassed > 0 && input.evidence.testsPassed === input.evidence.testsRun,
         userFeedbackRating: input.userFeedbackRating,
         summary: input.summary || evaluation.explanation,
+        evidenceSource,
       });
 
-      // Update Procedural Memory only with verified outcomes (or explicit failure diagnostics)
+      // Update Procedural Memory with trusted outcomes
       const succeeded = evaluation.status === 'COMPLETED' && evaluation.verified;
       this.memory.recordProcedureOutcome({
         projectId: plan.projectId,
@@ -480,13 +515,25 @@ export class AdaptiveIntelligenceCoordinator {
         steps: strategy.executionStages,
         modelId: input.modelId,
         succeeded,
-        reward: evaluation.reward,
+        reward: learningReward,
       });
 
-      // Update Contextual Bandit arm statistics (skip cancelled/blocked tasks so external interruptions don't corrupt arm quality)
+      // Update Contextual Bandit arm statistics (skip cancelled/blocked tasks)
       if (evaluation.status !== 'CANCELLED' && evaluation.status !== 'BLOCKED') {
-        this.bandit.recordOutcome(banditCtx, strategy.id, evaluation.reward, succeeded);
+        this.bandit.recordOutcome(banditCtx, strategy.id, learningReward, succeeded);
       }
+
+      // Part 6: Post-Task Self-Improvement Review
+      review = this.reviewer.review({
+        episodeId,
+        plan,
+        intent: input.intent || plan.analysis.taskCategory,
+        evidenceSource,
+        evaluation,
+        evidence: input.evidence,
+        toolFailureMessages: input.toolFailureMessages,
+        repairAttempts: input.repairAttempts,
+      });
     }
 
     return {
@@ -495,6 +542,7 @@ export class AdaptiveIntelligenceCoordinator {
       learningRecorded: learningEnabled,
       strategyId: strategy.id,
       contextKey,
+      review,
     };
   }
 
@@ -596,15 +644,19 @@ export class AdaptiveIntelligenceCoordinator {
       }))
       .sort((a, b) => b.pulls - a.pulls);
 
-    const validationRuns = this.memory.getValidationRuns(30);
+    const validationRuns = this.memory.getValidationRuns(40);
+    const simulatedBenchmarkRuns = validationRuns.filter((r) => r.source === 'SIMULATED_BENCHMARK');
+    const controlledLiveRuns = validationRuns.filter((r) => r.source === 'CONTROLLED_LIVE_EXPERIMENT');
     const failedLearningExperiments = validationRuns.filter((r) => !r.approved || r.learnedCompletionPct < r.baselineCompletionPct);
 
     return {
       generatedAt: new Date().toISOString(),
       governance: this.governance.getPolicy(),
       banditAlgorithm: this.bandit.getAlgorithm(),
+      explorationConfig: this.bandit.getExplorationConfig(),
       rewardWeights: this.evaluator.getWeights(),
       memoryStats: this.memory.getStats(projectId),
+      memoryQualityStats: this.memory.getMemoryQualityStats(projectId),
       lastDecisionPlan: this.lastDecisionPlan,
       episodicMemory: this.memory.getEpisodes({ projectId, limit: 50 }),
       semanticMemory: projectId
@@ -620,14 +672,19 @@ export class AdaptiveIntelligenceCoordinator {
           })),
       proceduralMemory: this.memory.getProcedures(projectId),
       evaluations: this.evaluator.getRecentEvaluations(projectId, 40),
+      postTaskReviews: this.memory.getPostTaskReviews(25),
       strategyStats,
       modelPerformance: this.getModelPerformance(projectId),
       toolPerformance: this.memory.getToolTelemetry(),
       policyVersions: this.bandit.getPolicyVersions(),
       rollbackHistory: this.bandit.getRollbackHistory(),
       validationRuns,
+      simulatedBenchmarkRuns,
+      controlledLiveRuns,
       failedLearningExperiments,
       strategyDistribution,
+      feasibilityStats: { ...this.feasibilityStats },
+      intentStats: { ...this.intentStats },
       lastOfflineEval: this.improver.getLastOfflineEval(),
     };
   }

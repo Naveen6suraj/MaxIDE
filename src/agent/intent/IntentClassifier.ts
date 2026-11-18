@@ -11,6 +11,7 @@ export type UserIntent =
   | 'EXPLAIN'
   | 'CODE_EDIT'
   | 'BUILD'
+  | 'NATIVE_APP_BUILD'
   | 'DEBUG'
   | 'TEST'
   | 'REFACTOR'
@@ -79,6 +80,12 @@ export interface IntentClassification {
   isMultiCapability?: boolean;
   capabilitiesRequired?: string[];
   extractedTarget?: string;  // e.g. URL, file path, commit message
+  targetPlatform?: 'NATIVE_WINDOWS' | 'WEB_APP' | 'FULLSTACK_WEB' | 'BACKEND_SERVICE' | 'CLI_UTILITY' | 'UNKNOWN';
+  requiresFileModification?: boolean;
+  requiresBrowserExecution?: boolean;
+  requiresNativeExecution?: boolean;
+  workflowRoute?: string;
+  lowConfidenceFallback?: boolean;
   rationale: string;
 }
 
@@ -87,6 +94,66 @@ export class IntentClassifier {
    * Classify user input into one of the explicit intent categories.
    */
   public static classify(prompt: string): IntentClassification {
+    const trimmed = (prompt || '').trim();
+    const lower = trimmed.toLowerCase();
+    const base = this.classifyCore(prompt);
+    return this.enrichClassification(base, lower, trimmed);
+  }
+
+  private static detectTargetPlatform(lower: string): IntentClassification['targetPlatform'] {
+    if (/\b(native\s+windows|windows\s+desktop|desktop\s+app|desktop\s+application|winforms|wpf|winui|win32|\.exe\b|c#\s+desktop|tauri)\b/i.test(lower)) {
+      return 'NATIVE_WINDOWS';
+    }
+    if (/\b(full[- ]?stack|backend\s+and\s+frontend|api\s+and\s+ui|next\.js|nextjs)\b/i.test(lower)) {
+      return 'FULLSTACK_WEB';
+    }
+    if (/\b(rest\s+api|backend|server|microservice|express\s+api|database|sqlite|sql\s+schema|migration)\b/i.test(lower) && !/\b(website|landing\s+page|frontend|react\s+ui|browser)\b/i.test(lower)) {
+      return 'BACKEND_SERVICE';
+    }
+    if (/\b(cli\s+tool|command[- ]line|terminal\s+utility)\b/i.test(lower)) {
+      return 'CLI_UTILITY';
+    }
+    if (/\b(web|website|html|css|react|frontend|dashboard|ui|browser|preview|local\s*host|page|app)\b/i.test(lower)) {
+      return 'WEB_APP';
+    }
+    return 'UNKNOWN';
+  }
+
+  private static enrichClassification(base: IntentClassification, lower: string, trimmed: string): IntentClassification {
+    const targetPlatform = base.intent === 'NATIVE_APP_BUILD' ? 'NATIVE_WINDOWS' : this.detectTargetPlatform(lower);
+    const nonMutating = base.intent === 'CHAT' || base.intent === 'EXPLAIN' || base.intent === 'BROWSER_TASK';
+    const requiresFileModification = !nonMutating && base.intent !== 'TEST' && base.intent !== 'GIT_TASK';
+    const requiresNativeExecution = targetPlatform === 'NATIVE_WINDOWS' || base.intent === 'NATIVE_APP_BUILD';
+    const requiresBrowserExecution = !requiresNativeExecution && (base.intent === 'BROWSER_TASK' || targetPlatform === 'WEB_APP' || targetPlatform === 'FULLSTACK_WEB');
+
+    const routeMap: Record<string, string> = {
+      CHAT: 'CHAT_SAFE',
+      EXPLAIN: 'EXPLAIN_SAFE',
+      BUILD: 'BUILD_FLOW',
+      NATIVE_APP_BUILD: 'NATIVE_WINDOWS_FLOW',
+      CODE_EDIT: 'EDIT_FLOW',
+      DEBUG: 'DEBUG_REPAIR_FLOW',
+      TEST: 'TEST_FLOW',
+      REFACTOR: 'REFACTOR_FLOW',
+      BROWSER_TASK: 'BROWSER_PREVIEW_FLOW',
+      GIT_TASK: 'GIT_FLOW',
+      PROJECT_TASK: 'PROJECT_FLOW',
+    };
+
+    const lowConfidenceFallback = trimmed.length < 4 && base.intent === 'PROJECT_TASK';
+    return {
+      ...base,
+      confidence: lowConfidenceFallback ? 0.45 : base.confidence,
+      targetPlatform,
+      requiresFileModification,
+      requiresBrowserExecution,
+      requiresNativeExecution,
+      workflowRoute: routeMap[base.intent] || 'PROJECT_FLOW',
+      lowConfidenceFallback,
+    };
+  }
+
+  private static classifyCore(prompt: string): IntentClassification {
     const trimmed = (prompt || '').trim();
     const lower = trimmed.toLowerCase();
     const cleaned = lower.replace(/[.,!?;:'"()]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -137,8 +204,20 @@ export class IntentClassifier {
       };
     }
 
-    // 4. Conceptual Explanation / Educational Inquiry (EXPLAIN)
-    // Examples: "what is React?", "explain this code", "what is a promise?", "how does this function work?"
+    // 4. Debugging & Autonomous Repair (MUST precede EXPLAIN & TEST so "Why is my API failing?" and "Run the tests and fix the errors" route to DEBUG!)
+    if (this.isDebug(lower)) {
+      return {
+        intent: 'DEBUG',
+        confidence: 0.93,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        rationale: 'Bug diagnosis, troubleshooting, test verification, and autonomous repair.',
+      };
+    }
+
+    // 5. Conceptual Explanation / Educational Inquiry (EXPLAIN — strictly non-mutating)
     if (this.isExplain(lower)) {
       return {
         intent: 'EXPLAIN',
@@ -151,8 +230,7 @@ export class IntentClassifier {
       };
     }
 
-    // 5. Testing & Verification
-    // Examples: "run tests", "run npm test", "verify with playwright", "test the auth system"
+    // 6. Testing & Verification
     if (this.isTest(lower)) {
       return {
         intent: 'TEST',
@@ -162,20 +240,6 @@ export class IntentClassifier {
         isBrowserTask: false,
         isGitTask: false,
         rationale: 'Test execution and verification task.',
-      };
-    }
-
-    // 6. Debugging & Bug Fixing
-    // Examples: "fix the login bug", "why is the preview broken?", "fix the syntax error in app.js"
-    if (this.isDebug(lower)) {
-      return {
-        intent: 'DEBUG',
-        confidence: 0.90,
-        isConversational: false,
-        isExecution: true,
-        isBrowserTask: false,
-        isGitTask: false,
-        rationale: 'Bug diagnosis, troubleshooting, and autonomous repair.',
       };
     }
 
@@ -384,6 +448,19 @@ export class IntentClassifier {
       };
     }
 
+    // 13.9. Native Windows / Desktop Application Building (MUST never silently route to HTML web build)
+    if (this.isNativeAppBuild(lower)) {
+      return {
+        intent: 'NATIVE_APP_BUILD',
+        confidence: 0.95,
+        isConversational: false,
+        isExecution: true,
+        isBrowserTask: false,
+        isGitTask: false,
+        rationale: 'Native desktop application engineering workflow (requires host compiler/SDK capability check).',
+      };
+    }
+
     // 14. Full Application / Feature Building
     // Examples: "Build a portfolio website", "Create a React dashboard", "Create a modern landing page for an AI startup"
     if (this.isBuild(lower, trimmed)) {
@@ -486,9 +563,18 @@ export class IntentClassifier {
 
   private static isDebug(lower: string): boolean {
     return (
-      /\b(fix|debug|resolve|repair|patch)\s+(the\s+)?(bug|error|issue|problem|failure|crash)\b/i.test(lower) ||
-      /\bwhy\s+is\s+(this|the\s+app|the\s+preview|it)\s+(broken|failing|crashing|not\s+working)\b/i.test(lower) ||
-      /\bfix\s+the\s+login\s+bug\b/i.test(lower)
+      /\b(fix|debug|repair|patch|troubleshoot|diagnose)\b/i.test(lower) ||
+      /\bresolve\s+(the\s+)?(bug|error|issue|problem|failure|crash|conflict|exception)\b/i.test(lower) ||
+      /\b(why\s+is|find\s+why|figure\s+out\s+why)\b.*\b(broken|failing|crashing|crash|crashes|error|errors|not\s+working|failing|wrong|stuck|hung|timeout)\b/i.test(lower) ||
+      /\bmake\s+(this|the)\s+(code|app|application|script|function|test|tests|build)\s+work\b/i.test(lower) ||
+      /\b(not\s+working|keeps\s+crashing|throws\s+an?\s+error|failing\s+tests?)\b/i.test(lower)
+    );
+  }
+
+  private static isNativeAppBuild(lower: string): boolean {
+    return (
+      /\b(build|create|make|develop|write|scaffold|generate)\b/i.test(lower) &&
+      /\b(native\s+windows|windows\s+desktop|desktop\s+app|desktop\s+application|winforms|wpf|winui|win32|\.exe\b|c#\s+desktop|tauri\s+app)\b/i.test(lower)
     );
   }
 

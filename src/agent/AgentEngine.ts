@@ -506,10 +506,14 @@ export class AgentEngine {
     const codebaseContext = this.intelligence.buildContext(taskPrompt, 2500);
     const projectMemContext = this.projectMemory.buildPromptContext();
 
-    // 3b. Adaptive Intelligence Engine: Objective Reasoning + Strategy Selection + Experience Retrieval
+    // 3b. Structured Intent Classification + Adaptive Intelligence Engine (Stage 1 Feasibility + Stage 2 Strategy)
     const taskStartTime = Date.now();
     let totalToolsExecuted = 0;
     let totalToolFailures = 0;
+    let closedLoopRepairAttempts = 0;
+    const toolFailureMessages: string[] = [];
+    const taskIntent = IntentClassifier.classify(taskPrompt);
+    const isExecutionTask = taskIntent.isExecution && !taskIntent.isConversational;
     let decisionPlan: DecisionPlan | undefined;
     if (this.adaptiveIntelligence) {
       try {
@@ -518,8 +522,30 @@ export class AgentEngine {
           prompt: taskPrompt,
           workspacePath: this.workspaceManager.getRootPath(),
           modelId: modelId || this.gateway.getActiveModelId() || 'unknown',
+          intent: taskIntent.intent,
         });
         this.logActivity('thought', `[Adaptive Reasoning] ${decisionPlan.decisionRationale}`);
+
+        // Part 3 & 8: If NO feasible toolchain exists (e.g. Native Windows requested without csc.exe or dotnet SDK),
+        // report honest blocker with exact installation instructions — NEVER substitute HTML!
+        if (decisionPlan.feasibility.blockedByCapabilities) {
+          const installList = decisionPlan.feasibility.installInstructions.map((i) => `- \`${i}\``).join('\n');
+          const blockerMsg = `### ⚠️ Capability Blocker (${decisionPlan.analysis.targetPlatform})\n\n${decisionPlan.feasibility.blockerMessage}\n\n**Required Installation Steps:**\n${installList || '- Install the required native SDK/compiler for your target platform.'}`;
+          this.logActivity('error', decisionPlan.feasibility.blockerMessage || 'Blocked by missing toolchain.');
+          this.setLifecycleState('FAILED');
+          return {
+            success: false,
+            task: taskPrompt,
+            totalSteps: 0,
+            finalAnswer: blockerMsg,
+            steps: [],
+            plan: this.currentPlan,
+            activityTimeline: this.timeline,
+            strategyId: decisionPlan.selectedStrategy.id,
+            decisionRationale: decisionPlan.decisionRationale,
+            error: `CAPABILITY_BLOCKED: ${decisionPlan.feasibility.blockerMessage}`,
+          };
+        }
       } catch {}
     }
 
@@ -630,8 +656,59 @@ export class AgentEngine {
         this.logActivity('thought', `[Tool Envelope Observed] Model emitted JSON envelope in thought stream.`);
       }
 
-      // If still no tool calls, task has concluded
+      // If still no tool calls, verify tests / native build BEFORE concluding so agent can self-repair!
       if (currentToolCalls.length === 0) {
+        if (isExecutionTask && totalToolsExecuted > 0 && closedLoopRepairAttempts < 2 && currentStep < maxSteps) {
+          const discNow = this.testEngine.discoverTests();
+          if (discNow.hasTests) {
+            this.setLifecycleState('TESTING');
+            const liveTest = await this.testEngine.runTests(discNow.testCommand);
+            this.currentEvidence.testsRun++;
+            if (liveTest.passed) {
+              this.currentEvidence.testsPassed++;
+              this.logActivity('thought', `[Closed-Loop Verification] Tests passed (${discNow.testCommand}).`);
+            } else {
+              closedLoopRepairAttempts++;
+              const errSnippet = (liveTest.stderr || liveTest.stdout || liveTest.parsedFailures.join('\n')).slice(0, 900);
+              toolFailureMessages.push(`Test failure (${discNow.testCommand}): ${errSnippet.slice(0, 160)}`);
+              this.logActivity('recovery', `[Closed-Loop Self-Repair #${closedLoopRepairAttempts}] Tests failed — feeding exact diagnostics back to agent.`);
+              this.setLifecycleState('REPAIRING');
+              messages.push({ role: 'assistant', content: stepThought || 'Inspecting test output.' });
+              messages.push({
+                role: 'user',
+                content: `AUTOMATED TEST FAILURE (Repair Attempt ${closedLoopRepairAttempts}/2):\nCommand \`${discNow.testCommand}\` FAILED with:\n\`\`\`\n${errSnippet}\n\`\`\`\nInspect the failing file with read_file, fix the actual bug with edit_file, and verify with run_command before concluding.`,
+              });
+              continue;
+            }
+          } else if (
+            (taskIntent.intent === 'NATIVE_APP_BUILD' || decisionPlan?.analysis.targetPlatform === 'NATIVE_WINDOWS') &&
+            decisionPlan?.capabilities.cscPath
+          ) {
+            const wsRoot = this.workspaceManager.getRootPath();
+            const csFiles = fs.readdirSync(wsRoot).filter((f) => f.toLowerCase().endsWith('.cs'));
+            const exeFiles = fs.readdirSync(wsRoot).filter((f) => f.toLowerCase().endsWith('.exe'));
+            if (csFiles.length > 0 && exeFiles.length === 0) {
+              const targetCs = csFiles.find((f) => f.toLowerCase() === 'program.cs') || csFiles[0];
+              const compileCmd = `"${decisionPlan.capabilities.cscPath}" /target:winexe /out:App.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll "${targetCs}"`;
+              const compileRes = await this.safeTerminal.executeCommand(compileCmd, { bypassApproval: true, timeoutMs: 20000 });
+              this.currentEvidence.commandsExecuted.push(compileCmd);
+              if (compileRes.exitCode !== 0) {
+                closedLoopRepairAttempts++;
+                const cErr = (compileRes.stdout || compileRes.stderr || 'csc.exe failed').slice(0, 900);
+                toolFailureMessages.push(`csc.exe compile error: ${cErr.slice(0, 160)}`);
+                this.logActivity('recovery', `[Native Windows Self-Repair #${closedLoopRepairAttempts}] csc.exe failed — feeding compiler errors to agent.`);
+                this.setLifecycleState('REPAIRING');
+                messages.push({ role: 'assistant', content: stepThought || 'Checking C# compiler output.' });
+                messages.push({
+                  role: 'user',
+                  content: `NATIVE WINDOWS C# COMPILER ERROR (Repair Attempt ${closedLoopRepairAttempts}/2):\nRunning csc.exe (C# 5 compiler) on "${targetCs}" failed:\n\`\`\`\n${cErr}\n\`\`\`\nRewrite "${targetCs}" using strictly valid C# 5 syntax (NO $"string interpolation", NO => expression bodies, include using System; using System.Drawing; using System.Windows.Forms; and [STAThread] static void Main()) and compile it to App.exe.`,
+                });
+                continue;
+              }
+            }
+          }
+        }
+
         finalAnswer = stepThought.trim();
         if (ContentSanitizer.isToolEnvelope(finalAnswer)) {
           finalAnswer = '';
@@ -960,9 +1037,7 @@ export class AgentEngine {
       ...steps.flatMap(s => (s.toolCalls || []).filter(tc => ['run_command', 'execute_command', 'executeCommand'].includes(tc.name)).map(tc => (tc.arguments as any)?.command).filter(Boolean)),
     ]));
 
-    const executionKeywords = ['build', 'create', 'make', 'implement', 'write', 'code', 'generate', 'game', 'messenger', 'app', 'site', 'website'];
-    const isExecutionTask = executionKeywords.some(kw => new RegExp(`\\b${kw}\\b`, 'i').test(lowerTask));
-
+    // Structured Intent-Based Execution Verification (replaces brittle Mission 7 executionKeywords array!)
     let physicalFilesExist = false;
     for (const f of filesTouched) {
       const fullPath = path.isAbsolute(f) ? f : path.join(rootPath, f);
@@ -979,23 +1054,26 @@ export class AgentEngine {
       }
     }
 
-    // Closed-Loop Verification: Automatically discover and execute project test suite
+    // Closed-Loop Final Verification: ALWAYS run discovered project tests on execution/debug/fix tasks
     const disc = this.testEngine.discoverTests();
-    if (disc.hasTests && isExecutionTask && (this.currentEvidence.modifiedFiles.length > 0 || physicalFilesExist)) {
+    let finalTestPassed = true;
+    if (disc.hasTests && isExecutionTask && (this.currentEvidence.modifiedFiles.length > 0 || physicalFilesExist || taskIntent.intent === 'DEBUG' || taskIntent.intent === 'TEST')) {
       this.setLifecycleState('TESTING');
-      this.logActivity('thought', `[Closed-Loop Verification] Discovered automated tests: "${disc.testCommand}". Running verification suite...`);
+      this.logActivity('thought', `[Closed-Loop Verification] Discovered automated tests: "${disc.testCommand}". Running final verification...`);
       const testRes = await this.testEngine.runTests(disc.testCommand);
       this.currentEvidence.testsRun++;
       if (testRes.passed) {
         this.currentEvidence.testsPassed++;
+        finalTestPassed = true;
         this.logActivity('thought', `[Closed-Loop Verification] Automated test suite passed successfully (0 errors).`);
       } else {
+        finalTestPassed = false;
         this.currentEvidence.diagnostics.push(...testRes.parsedFailures);
         this.logActivity('error', `[Closed-Loop Verification Failed] Tests failed: ${testRes.parsedFailures.slice(0, 3).join('; ')}`);
       }
     }
 
-    const testsFailed = this.currentEvidence.testsRun > 0 && this.currentEvidence.testsPassed === 0;
+    const testsFailed = (this.currentEvidence.testsRun > 0 && !finalTestPassed) || (this.currentEvidence.testsRun > 0 && this.currentEvidence.testsPassed === 0);
     const taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
 
     if (taskActuallySucceeded) {
@@ -1045,6 +1123,10 @@ export class AgentEngine {
         const learnRes = this.adaptiveIntelligence.completeAndLearn({
           plan: decisionPlan,
           modelId: modelId || this.gateway.getActiveModelId() || 'unknown',
+          intent: taskIntent.intent,
+          evidenceSource: (options as any).evidenceSource || 'USER_ENGINEERING_EXECUTION',
+          toolFailureMessages,
+          repairAttempts: closedLoopRepairAttempts,
           requirementCoverageEstimate: taskActuallySucceeded ? (physicalFilesExist ? 0.92 : 0.78) : (physicalFilesExist ? 0.45 : 0.0),
           summary: (finalAnswer || '').slice(0, 320),
           evidence: {
@@ -1166,8 +1248,9 @@ export class AgentEngine {
           arguments: { path: detectedPath, content: codeContent },
         });
 
-        // If the task asked to run it: also schedule run_command
-        if (lowerPrompt.includes('run') && (detectedPath.endsWith('.js') || detectedPath.endsWith('.cjs') || detectedPath.endsWith('.mjs'))) {
+        // If the task asked to run it: also schedule run_command (avoid running browser scripts in node)
+        const isDomScript = /\b(document\.|window\.|localStorage\.)/.test(codeContent);
+        if (lowerPrompt.includes('run') && !isDomScript && (detectedPath.endsWith('.js') || detectedPath.endsWith('.cjs') || detectedPath.endsWith('.mjs'))) {
           calls.push({
             id: `call-run-${Date.now()}`,
             name: 'run_command',

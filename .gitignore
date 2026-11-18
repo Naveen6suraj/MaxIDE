@@ -47,3 +47,4 @@ tmp/
 test_*
 test_*/**
 .maxide/
+.agent_data/

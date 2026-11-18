@@ -494,6 +494,52 @@ window.MaxIntelligenceCenter = (function () {
       }
     }
 
+    // 1b. Mission 9 Live Intent & Feasibility & Memory Quality Telemetry
+    const intentEl = document.getElementById('ic-intent-distribution');
+    if (intentEl && data.intentStats) {
+      const entries = Object.entries(data.intentStats);
+      intentEl.innerHTML = entries.length === 0
+        ? '<div style="font-size:11.5px;color:var(--text-muted);">No task intents routed yet.</div>'
+        : entries.map(([intent, cnt]) => `<span class="badge" style="margin:2px 4px 2px 0;"><strong>${escapeHtml(intent)}</strong>: ${cnt}</span>`).join('');
+    }
+
+    const feasEl = document.getElementById('ic-feasibility-stats');
+    if (feasEl && data.feasibilityStats) {
+      const f = data.feasibilityStats;
+      feasEl.innerHTML = `
+        <div class="mono" style="font-size:11px;color:var(--text-secondary);">
+          Plans: <strong>${f.totalPlans}</strong> • Feasible Evaluated: <strong>${f.totalCandidatesEvaluated - f.totalFilteredOut}/${f.totalCandidatesEvaluated}</strong> • Filtered Out Infeasible: <strong style="color:var(--color-warning);">${f.totalFilteredOut}</strong> • Blocked: <strong style="color:${f.blockedCount > 0 ? 'var(--color-error)' : 'var(--color-success)'};">${f.blockedCount}</strong>
+        </div>
+      `;
+    }
+
+    const mqEl = document.getElementById('ic-memory-quality-metrics');
+    if (mqEl && data.memoryQualityStats) {
+      const q = data.memoryQualityStats;
+      mqEl.innerHTML = `
+        <div class="mono" style="font-size:11px;color:var(--text-secondary);line-height:1.5;">
+          <div>Unique Episodes: <strong>${q.uniqueEpisodes}</strong> • Duplicate Writes Merged: <strong style="color:var(--accent-cyan);">${q.duplicatesPrevented}</strong></div>
+          <div>Fresh (&le;30d): <strong>${q.freshCount30d}</strong> • Stale (&ge;90d): <strong>${q.staleCount90d}</strong> • Avg Recency Weight: <strong>${q.avgRecencyWeight}</strong></div>
+        </div>
+      `;
+    }
+
+    const ptrEl = document.getElementById('ic-post-task-reviews');
+    if (ptrEl) {
+      const reviews = data.postTaskReviews || [];
+      ptrEl.innerHTML = reviews.length === 0
+        ? '<div style="font-size:11.5px;color:var(--text-muted);">Self-improvement reviews record automatically after task completions.</div>'
+        : reviews.slice(0, 6).map((r) => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;">
+            <div class="flex items-center justify-between">
+              <span class="mono" style="font-weight:600;">${escapeHtml(r.strategyId)} (${escapeHtml(r.intent)})</span>
+              <span class="badge ${r.requirementsMet ? 'badge-success' : 'badge-error'}">${r.requirementsMet ? 'MET' : 'UNMET'}</span>
+            </div>
+            <div style="color:var(--text-secondary);margin-top:2px;">${escapeHtml((r.improvements || []).slice(0, 2).join('; ') || 'Criteria met.')}</div>
+          </div>
+        `).join('');
+    }
+
     // 2. Latest Benchmark 4-System Comparison + Learning Curves + Memory Effectiveness
     const latestFull = runs.find((r) => Array.isArray(r.summary?.systemComparison));
     const compEl = document.getElementById('ic-m8-comparison');
@@ -568,17 +614,20 @@ window.MaxIntelligenceCenter = (function () {
       }
     }
 
-    // 3. Benchmark History (explicit SIMULATED BENCHMARK vs LIVE AGENT EXECUTION badges)
+    // 3. Benchmark History (explicit 3-way separation: SIMULATED BENCHMARK vs CONTROLLED LIVE EXPERIMENT vs USER EXECUTION)
     const histEl = document.getElementById('ic-m8-benchmark-history');
     if (histEl) {
       if (runs.length === 0) {
         histEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No persisted benchmark runs yet.</div>';
       } else {
-        histEl.innerHTML = runs.slice(0, 10).map((r) => `
+        histEl.innerHTML = runs.slice(0, 12).map((r) => {
+          const badgeCls = r.source === 'CONTROLLED_LIVE_EXPERIMENT' ? 'badge-cyan' : r.source === 'USER_ENGINEERING_EXECUTION' ? 'badge-accent' : '';
+          const badgeTxt = r.source === 'CONTROLLED_LIVE_EXPERIMENT' ? 'CONTROLLED LIVE EXPERIMENT' : r.source === 'USER_ENGINEERING_EXECUTION' ? 'USER EXECUTION' : 'SIMULATED BENCHMARK';
+          return `
           <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1" style="flex-wrap:wrap;">
-                <span class="badge ${r.source === 'REAL_AGENT_EXECUTION' ? 'badge-cyan' : ''}">${r.source === 'REAL_AGENT_EXECUTION' ? 'LIVE AGENT EXECUTION' : 'SIMULATED BENCHMARK'}</span>
+                <span class="badge ${badgeCls}">${badgeTxt}</span>
                 <span class="badge ${r.approved ? 'badge-success' : 'badge-error'}">${r.approved ? 'APPROVED' : 'REJECTED'}</span>
                 <span class="mono">${escapeHtml(r.benchmarkVersion)}</span>
               </div>
@@ -588,7 +637,8 @@ window.MaxIntelligenceCenter = (function () {
               Baseline ${r.baselineCompletionPct.toFixed(1)}% → Learned ${r.learnedCompletionPct.toFixed(1)}%${r.ci95Low !== null ? ` (95% CI [${r.ci95Low}%, ${r.ci95High}%])` : ''} • Reward ${r.baselineReward.toFixed(3)} → ${r.learnedReward.toFixed(3)}
             </div>
           </div>
-        `).join('');
+        `;
+        }).join('');
       }
     }
 

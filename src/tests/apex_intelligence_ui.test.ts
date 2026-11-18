@@ -50,7 +50,7 @@ async function main() {
     '9. RL Policy & Reward Preferences',
     '10. Privacy, Security & Learning Controls',
     '11. Validation Benchmarks, 95% CI & Learning Curves',
-    '12. Strategy Distribution & Failed Experiments',
+    '12. Mission 9 Live Engineering Analytics',
   ];
   for (const h of requiredHeadings) {
     assert.ok(bodyText.includes(h.toUpperCase()), `Missing APEX Intelligence Center section: ${h}`);
@@ -60,7 +60,7 @@ async function main() {
   // Test interactive Reasoning Plan simulator for Native Windows Desktop task
   await page.fill('#ic-plan-preview-input', 'Build a native Windows desktop inventory management app (.exe)');
   await page.click('button:has-text("Simulate Plan")');
-  await page.waitForTimeout(600);
+  await page.waitForFunction(() => document.querySelector('#ic-reasoning-body')?.textContent?.includes('native-winforms-csc'), { timeout: 10000 });
 
   const reasoningText = await page.textContent('#ic-reasoning-body');
   assert.ok(reasoningText && reasoningText.includes('native-winforms-csc'), 'UI must show native-winforms-csc selected for Native Windows prompt');
@@ -68,7 +68,7 @@ async function main() {
 
   // Test interactive Offline Eval & Promote button
   await page.click('button:has-text("Run Offline Eval & Promote")');
-  await page.waitForTimeout(700);
+  await page.waitForFunction(() => document.querySelector('#ic-offline-eval-result')?.textContent?.includes('Offline Benchmark'), { timeout: 10000 });
   const evalText = await page.textContent('#ic-offline-eval-result');
   assert.ok(evalText && evalText.includes('Offline Benchmark'), 'UI must display real offline evaluation banner');
 

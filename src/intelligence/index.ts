@@ -5,5 +5,7 @@ export * from './PolicyGovernance.js';
 export * from './ExperienceMemory.js';
 export * from './SelfEvaluationEngine.js';
 export * from './ContextualBandit.js';
+export * from './ToolchainDetector.js';
 export * from './ReasoningDecisionEngine.js';
+export * from './SelfImprovementReviewer.js';
 export * from './ContinuousImprovementEngine.js';

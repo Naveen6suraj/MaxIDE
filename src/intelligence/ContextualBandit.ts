@@ -76,20 +76,62 @@ class SeededRandom {
   }
 }
 
+export interface ExplorationConfig {
+  explorationC: number;
+  maxExplorationBonus: number;
+  minSamplesBeforeDefaultChange: number;
+  confidenceScaledDamping: boolean;
+}
+
 export class ContextualBandit {
   private algorithm: BanditAlgorithm = 'UCB1';
-  private explorationC: number = 0.75; // Conservative exploration factor
+  private explorationC: number = 0.30; // Bounded conservative exploration (Mission 9 calibrated from Mission 8 failure analysis)
+  private maxExplorationBonus: number = 0.35; // Prevents untested arm bonus from exceeding verified reward scale
+  private minSamplesBeforeDefaultChange: number = 3;
+  private confidenceScaledDamping: boolean = true;
   private priorPulls: number = 2;      // Regularization preventing single-sample overfitting
   private deterministicMode: boolean = false;
   private rng: SeededRandom = new SeededRandom(42);
 
-  constructor(private memory: ExperienceMemory, options?: { algorithm?: BanditAlgorithm; explorationC?: number; deterministicSeed?: number }) {
+  constructor(
+    private memory: ExperienceMemory,
+    options?: {
+      algorithm?: BanditAlgorithm;
+      explorationC?: number;
+      maxExplorationBonus?: number;
+      minSamplesBeforeDefaultChange?: number;
+      deterministicSeed?: number;
+    }
+  ) {
     if (options?.algorithm) this.algorithm = options.algorithm;
     if (options?.explorationC !== undefined) this.explorationC = options.explorationC;
+    if (options?.maxExplorationBonus !== undefined) this.maxExplorationBonus = options.maxExplorationBonus;
+    if (options?.minSamplesBeforeDefaultChange !== undefined) {
+      this.minSamplesBeforeDefaultChange = options.minSamplesBeforeDefaultChange;
+    }
     if (options?.deterministicSeed !== undefined) {
       this.deterministicMode = true;
       this.rng = new SeededRandom(options.deterministicSeed);
     }
+  }
+
+  public getExplorationConfig(): ExplorationConfig {
+    return {
+      explorationC: this.explorationC,
+      maxExplorationBonus: this.maxExplorationBonus,
+      minSamplesBeforeDefaultChange: this.minSamplesBeforeDefaultChange,
+      confidenceScaledDamping: this.confidenceScaledDamping,
+    };
+  }
+
+  public setExplorationConfig(cfg: Partial<ExplorationConfig>): ExplorationConfig {
+    if (cfg.explorationC !== undefined) this.explorationC = Math.max(0, Math.min(2.0, cfg.explorationC));
+    if (cfg.maxExplorationBonus !== undefined) this.maxExplorationBonus = Math.max(0, Math.min(1.0, cfg.maxExplorationBonus));
+    if (cfg.minSamplesBeforeDefaultChange !== undefined) {
+      this.minSamplesBeforeDefaultChange = Math.max(1, Math.round(cfg.minSamplesBeforeDefaultChange));
+    }
+    if (cfg.confidenceScaledDamping !== undefined) this.confidenceScaledDamping = Boolean(cfg.confidenceScaledDamping);
+    return this.getExplorationConfig();
   }
 
   public static buildContextKey(ctx: BanditContext): string {
@@ -210,8 +252,11 @@ export class ContextualBandit {
       const empirical01 = (arm.meanReward + 1) / 2;
       const regMean = (arm.pulls * empirical01 + this.priorPulls * priorNorm) / (arm.pulls + this.priorPulls);
 
-      // Penalize strategies with repeated consecutive failures in the same context
-      const failureDamping = arm.consecutiveFailures >= 2 ? Math.min(0.45, arm.consecutiveFailures * 0.14) : 0;
+      // Confidence-scaled failure damping (prevents 2 stochastic failures from collapsing a 25-success arm)
+      const rawDamping = arm.consecutiveFailures >= 2 ? Math.min(0.45, arm.consecutiveFailures * 0.14) : 0;
+      const failureDamping = this.confidenceScaledDamping
+        ? rawDamping / Math.sqrt(1 + arm.successes * 0.5)
+        : rawDamping;
 
       let uncertaintyBonus = 0;
       let score = 0;
@@ -227,8 +272,9 @@ export class ContextualBandit {
         score = weight * sampled + (1 - weight) * priorNorm - failureDamping;
         uncertaintyBonus = round4(score - regMean);
       } else {
-        // Contextual UCB1
-        uncertaintyBonus = this.explorationC * Math.sqrt(Math.log(totalPulls + 2) / (arm.pulls + 1));
+        // Bounded Contextual UCB1: capped exploration bonus prevents untested arms from overriding proven winners
+        const rawUcb = this.explorationC * Math.sqrt(Math.log(totalPulls + 2) / (arm.pulls + 1));
+        uncertaintyBonus = Math.min(this.maxExplorationBonus, rawUcb);
         score = regMean + uncertaintyBonus - failureDamping;
       }
 
