@@ -122,7 +122,7 @@ const permissionManager = new PermissionManager(pathManager.getPermissionsFile()
 const storageFile = pathManager.getProvidersFile();
 const providerRegistry = new ProviderRegistry(storageFile);
 const modelRegistry = new ModelRegistry(providerRegistry);
-const gateway = new AIGateway(providerRegistry, modelRegistry, 'cloud');
+const gateway = new AIGateway(providerRegistry, modelRegistry, 'hybrid');
 
 // Determine initial workspace from active project
 const activeProject = projectManager.getActiveProject();
@@ -185,7 +185,7 @@ const defaultProviders: AIProviderConfig[] = [
     name: 'Ollama Local Engine',
     type: 'local' as const,
     apiType: 'ollama',
-    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
     defaultModel: 'llama3',
     isEnabled: true,
   },
@@ -219,6 +219,9 @@ for (const p of defaultProviders) {
     // Sync environment variables if stored config key is empty
     if (!existing.config.apiKey && p.apiKey) {
       existing.updateConfig({ apiKey: p.apiKey });
+    }
+    if (p.id === 'ollama-local' && existing.config.baseUrl && existing.config.baseUrl.includes('localhost')) {
+      existing.updateConfig({ baseUrl: existing.config.baseUrl.replace('localhost', '127.0.0.1') });
     }
   }
 }
@@ -322,7 +325,9 @@ modelRegistry.discoverAllModels().then(async () => {
     },
   ];
 
+  const discoveredLocalModels = modelRegistry.getAllModels().filter((m) => m.providerId === 'ollama-local');
   for (const m of catalogModels) {
+    if (m.providerId === 'ollama-local' && discoveredLocalModels.length > 0) continue;
     if (!modelRegistry.getModel(m.id)) {
       modelRegistry.registerModel(m as any);
     }
@@ -349,9 +354,17 @@ modelRegistry.discoverAllModels().then(async () => {
     try {
       const ollamaHealth = await providerRegistry.checkProviderHealth('ollama-local');
       if (ollamaHealth.status === 'online') {
-        initialActiveModel = 'llama3';
-        gateway.setActiveModel('llama3');
-        console.log(`[MaxIDE] Ollama is online locally: activated "llama3"`);
+        const installed = modelRegistry.getAllModels().filter((m) => m.providerId === 'ollama-local');
+        const chosen = installed.find((m) => m.id.includes('coder')) || installed[0];
+        if (chosen) {
+          initialActiveModel = chosen.id;
+          gateway.setActiveModel(chosen.id);
+          const ollamaProv = providerRegistry.getProvider('ollama-local');
+          if (ollamaProv) ollamaProv.updateConfig({ defaultModel: chosen.id });
+          console.log(`[MaxIDE] Ollama is online locally: activated installed model "${chosen.id}"`);
+        } else {
+          console.log(`[MaxIDE] Ollama is online locally, but no models are installed yet. Pull a model via 'ollama pull qwen2.5-coder:3b'.`);
+        }
       } else {
         console.log(`[MaxIDE] No cloud API keys found and Ollama is offline. Set to AUTO routing mode.`);
       }

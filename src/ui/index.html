@@ -43,6 +43,14 @@
             <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             <span>Preview</span>
           </button>
+          <button id="nav-view-intelligence" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('intelligence')">
+            <svg class="icon icon-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            <span>Intelligence</span>
+          </button>
+          <button id="nav-view-ai-control" class="view-tab" role="tab" aria-selected="false" onclick="MaxViews.switchMainView('ai-control')">
+            <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+            <span>AI Control</span>
+          </button>
         </nav>
 
         <button class="workspace-pill" onclick="MaxViews.openProjectSwitcherModal()" title="Switch Workspace Folder" aria-label="Current workspace">
@@ -645,13 +653,129 @@
     </section>
 
     <!-- ====================================================================
+         VIEW 5: PROJECT INTELLIGENCE & PERSISTENT PROJECT MEMORY
+         ==================================================================== -->
+    <section id="view-intelligence" class="mission-view hidden" aria-label="Project Intelligence">
+      <div class="cc-container">
+        <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap;">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;">Project Intelligence &amp; Memory</h2>
+            <p style="font-size:12px;color:var(--text-secondary);">Repository indexing, stack detection, dependency graph, symbol lookup, and persistent local project memory.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-sm btn-primary" onclick="MaxStudioPanels.reindexProjectIntelligence()">Re-Index Repository</button>
+            <button class="btn btn-sm" onclick="MaxViews.switchMainView('workspace')">Open Workspace</button>
+          </div>
+        </div>
+
+        <div id="pi-stats-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;"></div>
+
+        <div class="cc-grid-main">
+          <div class="flex-col gap-4">
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:10px;">Language Breakdown</div>
+              <div id="pi-languages-list"></div>
+            </div>
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:10px;">Top Indexed Symbols (Click to Jump)</div>
+              <div id="pi-symbols-list" style="max-height:260px;overflow-y:auto;"></div>
+            </div>
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:10px;">Cross-File Dependency Hubs</div>
+              <div id="pi-hubs-list"></div>
+            </div>
+          </div>
+
+          <div class="flex-col gap-4">
+            <div class="card flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <span class="cc-section-title">Persistent Project Memory (Secret-Sanitized)</span>
+                <button class="btn btn-xs btn-primary" onclick="MaxStudioPanels.saveProjectMemoryForm()">Save Memory</button>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Architecture Overview</label>
+                <textarea id="pm-architecture" class="textarea" rows="3" placeholder="Document architecture conventions, services, or data models..."></textarea>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Project Instructions for APEX Agent</label>
+                <textarea id="pm-instructions" class="textarea" rows="2" placeholder="e.g. Always run npm test after editing backend routes..."></textarea>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Engineering Decisions (One per line)</label>
+                <textarea id="pm-decisions" class="textarea" rows="2" placeholder="Key architectural decisions..."></textarea>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Known Issues (One per line)</label>
+                <textarea id="pm-issues" class="textarea" rows="2" placeholder="Open bugs or constraints..."></textarea>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:8px;">Project Dependencies</div>
+              <div id="pi-dependencies-list" style="max-height:200px;overflow-y:auto;"></div>
+            </div>
+
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:8px;">Recorded Task History</div>
+              <div id="pm-task-history"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         VIEW 6: AI CONTROL CENTER (OLLAMA LIFECYCLE, ROUTING, HARDWARE)
+         ==================================================================== -->
+    <section id="view-ai-control" class="mission-view hidden" aria-label="AI Control Center">
+      <div class="cc-container">
+        <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap;">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;">AI Control Center</h2>
+            <p style="font-size:12px;color:var(--text-secondary);">Local-first Ollama lifecycle, real endpoint capability probing, model routing, and RTX 3050 VRAM optimization.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="aic-ollama-endpoint" class="input mono" style="width:220px;" value="http://127.0.0.1:11434" aria-label="Ollama Endpoint URL" />
+            <button class="btn btn-sm btn-primary" onclick="MaxStudioPanels.reconnectOllamaFromUI()">Reconnect</button>
+            <button class="btn btn-sm" onclick="MaxViews.openSettingsModal('providers')">Cloud Providers</button>
+          </div>
+        </div>
+
+        <div id="aic-ollama-status-card" class="card"></div>
+
+        <div class="cc-grid-main">
+          <div class="flex-col gap-4">
+            <div class="card">
+              <div class="flex items-center justify-between" style="margin-bottom:10px;">
+                <span class="cc-section-title">Installed Local Models &amp; Verified Capabilities</span>
+                <button class="btn btn-xs" onclick="MaxViews.discoverLocalModels().then(()=>MaxStudioPanels.refreshAIControlCenter())">Discover Models</button>
+              </div>
+              <div id="aic-models-table"></div>
+            </div>
+          </div>
+
+          <div class="flex-col gap-4">
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:10px;">Routing &amp; Privacy Boundary</div>
+              <div id="aic-routing-card"></div>
+            </div>
+            <div class="card">
+              <div class="cc-section-title" style="margin-bottom:10px;">Hardware Budget &amp; GPU Telemetry</div>
+              <div id="aic-hardware-card"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
          STATUS BAR
          ==================================================================== -->
     <footer class="statusbar" role="contentinfo">
       <div class="statusbar-group">
         <span class="mono" id="sb-git-branch">git: main</span>
-        <span class="badge badge-accent" id="sb-privacy-mode">CLOUD</span>
-        <span id="sb-ollama-status" class="flex items-center gap-1"><span class="status-dot warning"></span> Ollama: Checking</span>
+        <button class="badge badge-accent" id="sb-privacy-mode" onclick="MaxViews.switchMainView('ai-control')" title="Configure Privacy & AI Routing">HYBRID</button>
+        <button id="sb-ollama-status" class="flex items-center gap-1" style="font-size:11px;color:var(--text-secondary);" onclick="MaxViews.switchMainView('ai-control')" title="Open AI Control Center"><span class="status-dot warning"></span> Ollama: Checking</button>
       </div>
       <div class="statusbar-group">
         <span id="sb-telemetry" class="mono">Telemetry initializing...</span>
@@ -796,6 +920,7 @@
   <!-- Modular Client Scripts -->
   <script src="/js/api.js"></script>
   <script src="/js/views.js"></script>
+  <script src="/js/studio-panels.js"></script>
 
   <!-- Core Editor, Binary Media Shield, SSE Agent Stream & Keyboard Shortcuts -->
   <script>

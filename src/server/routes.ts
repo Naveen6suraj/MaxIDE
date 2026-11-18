@@ -25,6 +25,7 @@ import { PathManager } from '../config/PathManager.js';
 import { PreviewManager } from './preview/PreviewManager.js';
 import { VerificationEngine } from '../agent/verification/VerificationEngine.js';
 import { MediaInspector } from '../agent/tools/MediaInspector.js';
+import { OllamaProvider } from '../ai/providers/ollama/OllamaProvider.js';
 
 // Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
 function streamFileWithRange(req: any, res: any, absPath: string): void {
@@ -87,7 +88,7 @@ export function createApiRouter(
   const router = Router();
 
   // --- 0. Production Health & System Readiness ---
-  router.get('/health', (req, res) => {
+  router.get('/health', async (req, res) => {
     try {
       const activeProject = projectManager.getActiveProject();
       res.json({
@@ -101,6 +102,8 @@ export function createApiRouter(
         providersCount: providerRegistry.getAllProviders().length,
         modelsCount: modelRegistry.getAllModels().length,
         activeModel: gateway.getActiveModelId(),
+        cloudConfiguredCount: providerRegistry.getAllProviders().filter((p) => p.type === 'cloud' && Boolean(p.config.apiKey)).length,
+        ollamaOnline: providerRegistry.getCachedHealth('ollama-local')?.status === 'online',
         aiMode: gateway.getAIMode(),
         autonomyMode: agentEngine.getAutonomyMode(),
         agentLifecycle: agentEngine.getLifecycleState(),
@@ -114,6 +117,7 @@ export function createApiRouter(
           heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1048576),
           platform: os.platform(),
           arch: os.arch(),
+          gpu: await OllamaProvider.getGpuTelemetry(),
         },
       });
     } catch (err: any) {
@@ -761,7 +765,8 @@ export function createApiRouter(
     res.json({ success: deleted });
   });
 
-  router.all(['/providers/:id/test', '/providers/:id/health'], async (req, res) => {
+  router.all(['/providers/:id/test', '/providers/:id/health'], async (req, res, next) => {
+    if (req.params.id === 'ollama' && req.method === 'POST' && req.path.endsWith('/test')) return next();
     try {
       const health = await providerRegistry.checkProviderHealth(req.params.id);
       res.json(health);
@@ -1417,6 +1422,128 @@ export function createApiRouter(
       }
       const result = await recoveryManager.resumeInterruptedTask(taskId);
       res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  
+  // --- 14. Native Ollama Lifecycle, Diagnostics & Capability Probing ---
+  const getOllamaInstance = (): OllamaProvider => {
+    const existing = providerRegistry.getProvider('ollama-local');
+    if (existing && existing instanceof OllamaProvider) return existing;
+    return new OllamaProvider({
+      id: 'ollama-local',
+      name: 'Ollama Local Engine',
+      type: 'local',
+      apiType: 'ollama',
+      baseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
+      defaultModel: 'qwen2.5:0.5b',
+      isEnabled: true,
+    });
+  };
+
+  router.get('/providers/ollama/diagnostics', async (req, res) => {
+    try {
+      const ollama = getOllamaInstance();
+      const report = await ollama.getDetailedDiagnostics();
+      await providerRegistry.checkProviderHealth('ollama-local').catch(() => {});
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/providers/ollama/start', async (req, res) => {
+    try {
+      const ollama = getOllamaInstance();
+      const result = await ollama.startOllamaService();
+      if (result.started) {
+        const discovered = await modelRegistry.discoverProviderModels('ollama-local');
+        if (discovered.length > 0) {
+          const chosen = discovered.find((m) => m.id.includes('coder')) || discovered[0];
+          ollama.updateConfig({ defaultModel: chosen.id });
+          if (gateway.getActiveModelId() === 'auto' || gateway.getActiveModelId() === 'llama3') {
+            gateway.setActiveModel(chosen.id);
+          }
+        }
+        await providerRegistry.checkProviderHealth('ollama-local');
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ started: false, message: err.message });
+    }
+  });
+
+  router.post('/providers/ollama/reconnect', async (req, res) => {
+    try {
+      const { baseUrl } = req.body || {};
+      const ollama = getOllamaInstance();
+      if (baseUrl && typeof baseUrl === 'string') {
+        ollama.updateConfig({ baseUrl: OllamaProvider.normalizeEndpoint(baseUrl) });
+        providerRegistry.registerProvider(ollama.config, ollama);
+      }
+      const health = await providerRegistry.checkProviderHealth('ollama-local');
+      let discovered: any[] = [];
+      if (health.status === 'online') {
+        discovered = await modelRegistry.discoverProviderModels('ollama-local');
+        if (discovered.length > 0) {
+          const chosen = discovered.find((m) => m.id.includes('coder')) || discovered[0];
+          ollama.updateConfig({ defaultModel: chosen.id });
+          gateway.setActiveModel(chosen.id);
+        }
+      }
+      res.json({ success: health.status === 'online', health, discoveredCount: discovered.length, activeModel: gateway.getActiveModelId() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/providers/ollama/test', async (req, res) => {
+    try {
+      const { model } = req.body || {};
+      const ollama = getOllamaInstance();
+      const target = model || ollama.config.defaultModel || gateway.getActiveModelId();
+      const result = await ollama.testModelEndpoints(target);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 15. Project Intelligence Summary & Incremental Re-Index ---
+  router.get('/intelligence/summary', async (req, res) => {
+    try {
+      const summary = await agentEngine.intelligence.analyzeProjectSummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence/reindex', async (req, res) => {
+    try {
+      const stats = await agentEngine.intelligence.indexProject();
+      const summary = await agentEngine.intelligence.analyzeProjectSummary();
+      res.json({ success: true, ...stats, summary });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 16. Persistent Project Memory (Secret-Sanitized) ---
+  router.get('/memory', (req, res) => {
+    try {
+      res.json(agentEngine.projectMemory.load());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/memory', (req, res) => {
+    try {
+      const saved = agentEngine.projectMemory.save(req.body || {});
+      res.json({ success: true, memory: saved });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

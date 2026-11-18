@@ -383,4 +383,140 @@ export class CodebaseIntelligence {
 
     return context.slice(0, maxChars);
   }
+
+  /**
+   * Incrementally re-index a single modified file without full repository rescan.
+   */
+  public indexFileIncremental(relPath: string): void {
+    const cleanRel = relPath.replace(/\\/g, '/');
+    if (this.isIgnored(cleanRel)) return;
+    const abs = path.join(this.workspaceRoot, cleanRel);
+    if (!fs.existsSync(abs)) {
+      this.fileIndex.delete(cleanRel);
+      this.fileSymbols.delete(cleanRel);
+      this.dependencyGraph.delete(cleanRel);
+      return;
+    }
+    try {
+      const stats = fs.statSync(abs);
+      if (stats.isFile() && stats.size < 2 * 1024 * 1024) {
+        const content = fs.readFileSync(abs, 'utf8');
+        this.fileIndex.set(cleanRel, content);
+        this.fileSymbols.delete(cleanRel);
+        this.extractSymbols(cleanRel, content);
+        this.extractDependencies(cleanRel, content);
+      }
+    } catch {}
+  }
+
+  /**
+   * Produce a structured Project Intelligence summary: languages, detected frameworks,
+   * dependencies, test/build scripts, indexed symbol counts, and cross-file dependency hubs.
+   */
+  public async analyzeProjectSummary(): Promise<{
+    workspaceRoot: string;
+    projectName: string;
+    totalFiles: number;
+    totalLines: number;
+    totalSymbols: number;
+    languages: Array<{ language: string; files: number; percentage: number }>;
+    frameworks: string[];
+    dependencies: Array<{ name: string; version: string; dev: boolean }>;
+    scripts: Record<string, string>;
+    dependencyHubs: Array<{ file: string; importsCount: number; dependentsCount: number }>;
+    topSymbols: CodeSymbol[];
+  }> {
+    if (this.fileIndex.size === 0) {
+      await this.indexProject();
+    }
+
+    const langCounts = new Map<string, number>();
+    const extToLang: Record<string, string> = {
+      '.ts': 'TypeScript', '.tsx': 'TypeScript',
+      '.js': 'JavaScript', '.jsx': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript',
+      '.html': 'HTML', '.css': 'CSS', '.scss': 'SCSS',
+      '.py': 'Python', '.json': 'JSON', '.md': 'Markdown',
+      '.rs': 'Rust', '.go': 'Go', '.cs': 'C#', '.sql': 'SQL',
+    };
+
+    let totalLines = 0;
+    for (const [rel, content] of this.fileIndex.entries()) {
+      totalLines += content.split('\n').length;
+      const ext = path.extname(rel).toLowerCase();
+      const lang = extToLang[ext] || 'Other';
+      langCounts.set(lang, (langCounts.get(lang) || 0) + 1);
+    }
+
+    const totalFiles = this.fileIndex.size;
+    const languages = Array.from(langCounts.entries())
+      .map(([language, files]) => ({
+        language,
+        files,
+        percentage: totalFiles > 0 ? Math.round((files / totalFiles) * 100) : 0,
+      }))
+      .sort((a, b) => b.files - a.files);
+
+    const frameworks = new Set<string>();
+    const dependencies: Array<{ name: string; version: string; dev: boolean }> = [];
+    let scripts: Record<string, string> = {};
+
+    const pkgPath = path.join(this.workspaceRoot, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      frameworks.add('Node.js');
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        scripts = pkg.scripts || {};
+        for (const [name, ver] of Object.entries(pkg.dependencies || {})) {
+          dependencies.push({ name, version: String(ver), dev: false });
+        }
+        for (const [name, ver] of Object.entries(pkg.devDependencies || {})) {
+          dependencies.push({ name, version: String(ver), dev: true });
+        }
+        const allDepNames = new Set(dependencies.map((d) => d.name.toLowerCase()));
+        if (allDepNames.has('react')) frameworks.add('React');
+        if (allDepNames.has('next')) frameworks.add('Next.js');
+        if (allDepNames.has('vite')) frameworks.add('Vite');
+        if (allDepNames.has('express')) frameworks.add('Express');
+        if (allDepNames.has('tailwindcss')) frameworks.add('Tailwind CSS');
+        if (allDepNames.has('playwright')) frameworks.add('Playwright');
+        if (allDepNames.has('typescript')) frameworks.add('TypeScript');
+        if (allDepNames.has('vue')) frameworks.add('Vue');
+        if (allDepNames.has('svelte')) frameworks.add('Svelte');
+      } catch {}
+    }
+
+    if (fs.existsSync(path.join(this.workspaceRoot, 'requirements.txt')) || fs.existsSync(path.join(this.workspaceRoot, 'pyproject.toml'))) {
+      frameworks.add('Python');
+    }
+    if (fs.existsSync(path.join(this.workspaceRoot, 'Cargo.toml'))) frameworks.add('Rust');
+    if (fs.existsSync(path.join(this.workspaceRoot, 'go.mod'))) frameworks.add('Go');
+
+    const allSyms: CodeSymbol[] = [];
+    for (const syms of this.fileSymbols.values()) {
+      allSyms.push(...syms);
+    }
+
+    const dependencyHubs = Array.from(this.dependencyGraph.values())
+      .map((d) => ({
+        file: d.file,
+        importsCount: d.imports.length,
+        dependentsCount: d.dependents.length,
+      }))
+      .sort((a, b) => (b.dependentsCount + b.importsCount) - (a.dependentsCount + a.importsCount))
+      .slice(0, 15);
+
+    return {
+      workspaceRoot: this.workspaceRoot,
+      projectName: path.basename(this.workspaceRoot) || 'Workspace',
+      totalFiles,
+      totalLines,
+      totalSymbols: allSyms.length,
+      languages,
+      frameworks: Array.from(frameworks),
+      dependencies: dependencies.slice(0, 40),
+      scripts,
+      dependencyHubs,
+      topSymbols: allSyms.slice(0, 40),
+    };
+  }
 }

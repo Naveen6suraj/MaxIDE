@@ -65,11 +65,11 @@ window.MaxViews = (function () {
   }
 
   // =========================================================================
-  // VIEW SWITCHER (Command Center | Workspace | Mission Control | Preview)
+  // VIEW SWITCHER (Command Center | Workspace | Mission | Preview | Intel | AI)
   // =========================================================================
   function switchMainView(view) {
     viewState.currentView = view;
-    ['home', 'workspace', 'mission', 'preview'].forEach((v) => {
+    ['home', 'workspace', 'mission', 'preview', 'intelligence', 'ai-control'].forEach((v) => {
       const el = document.getElementById(`view-${v}`);
       if (el) el.classList.toggle('hidden', v !== view);
       const tab = document.getElementById(`nav-view-${v}`);
@@ -89,6 +89,10 @@ window.MaxViews = (function () {
       refreshMissionControl();
     } else if (view === 'preview') {
       initPreviewStudio();
+    } else if (view === 'intelligence' && window.MaxStudioPanels) {
+      window.MaxStudioPanels.refreshProjectIntelligence();
+    } else if (view === 'ai-control' && window.MaxStudioPanels) {
+      window.MaxStudioPanels.refreshAIControlCenter();
     }
   }
 
@@ -138,20 +142,23 @@ window.MaxViews = (function () {
     if (!container) return;
 
     const ollama = providers.find((p) => p.apiType === 'ollama' || p.id.includes('ollama'));
-    const ollamaOnline = ollama?.health?.status === 'online';
-    const activeProvider = providers.find((p) => p.isEnabled && p.health?.status === 'online') || providers.find((p) => p.isEnabled);
+    const ollamaOnline = ollama ? ollama.health?.status === 'online' : Boolean(health?.ollamaOnline);
+    // Honest provider reporting: NEVER report an unconfigured cloud provider as active!
+    const onlineProvider = providers.find((p) => p.isEnabled && p.health?.status === 'online' && (p.type === 'local' || Boolean(p.apiKey)));
+    const activeProviderName = onlineProvider ? onlineProvider.name : (ollamaOnline ? 'Ollama Local Engine' : 'No Active Provider');
     const activeModel = health?.activeModel || document.getElementById('topbar-model-select')?.value || 'auto';
     const lifecycle = health?.agentLifecycle || 'IDLE';
     const tel = health?.telemetry || {};
+    const gpu = tel.gpu || {};
 
-    const lifecycleDot = lifecycle === 'FAILED' ? 'error' : (['PLANNING', 'INSPECTING', 'EXECUTING', 'TESTING', 'REPAIRING'].includes(lifecycle) ? 'working' : 'online');
+    const lifecycleDot = lifecycle === 'FAILED' ? 'error' : (['OBSERVING', 'PLANNING', 'WAITING_FOR_MODEL', 'INSPECTING', 'EXECUTING', 'TESTING', 'REPAIRING', 'VERIFYING'].includes(lifecycle) ? 'working' : 'online');
 
     container.innerHTML = `
       <div class="cc-metric-box">
         <span class="cc-metric-label">Active AI Provider</span>
         <span class="cc-metric-val">
-          <span class="status-dot ${activeProvider?.health?.status === 'online' ? 'online' : 'warning'}"></span>
-          <span class="truncate">${escapeHtml(activeProvider ? activeProvider.name : 'Not Configured')}</span>
+          <span class="status-dot ${onlineProvider || ollamaOnline ? 'online' : 'error'}"></span>
+          <span class="truncate">${escapeHtml(activeProviderName)}</span>
         </span>
       </div>
       <div class="cc-metric-box">
@@ -160,9 +167,12 @@ window.MaxViews = (function () {
       </div>
       <div class="cc-metric-box">
         <span class="cc-metric-label">Ollama Local Runtime</span>
-        <span class="cc-metric-val">
-          <span class="status-dot ${ollamaOnline ? 'online' : 'error'}"></span>
-          <span>${ollamaOnline ? 'Online (Local)' : 'Offline'}</span>
+        <span class="cc-metric-val justify-between">
+          <span class="flex items-center gap-1">
+            <span class="status-dot ${ollamaOnline ? 'online' : 'error'}"></span>
+            <span>${ollamaOnline ? 'Online (Local)' : 'Offline'}</span>
+          </span>
+          ${!ollamaOnline ? `<button class="btn btn-xs" onclick="MaxViews.switchMainView('ai-control')">Fix</button>` : ''}
         </span>
       </div>
       <div class="cc-metric-box">
@@ -173,8 +183,8 @@ window.MaxViews = (function () {
         </span>
       </div>
       <div class="cc-metric-box">
-        <span class="cc-metric-label">CPU & Compute</span>
-        <span class="cc-metric-val mono">${tel.cpuCores ? `${tel.cpuCores} Threads` : 'Local Host'}</span>
+        <span class="cc-metric-label">GPU / VRAM</span>
+        <span class="cc-metric-val mono truncate">${gpu.available ? `${gpu.vramUsedMb}/${gpu.vramTotalMb} MB • ${gpu.temperatureC}°C` : `${tel.cpuCores || '-'} CPU Threads`}</span>
       </div>
       <div class="cc-metric-box">
         <span class="cc-metric-label">Memory Telemetry</span>
@@ -185,11 +195,12 @@ window.MaxViews = (function () {
     // Update status bar telemetry
     const sbHealth = document.getElementById('sb-telemetry');
     if (sbHealth && tel.totalMemMb) {
-      sbHealth.textContent = `CPU ${tel.cpuCores}c • RAM ${tel.memUsagePct}% • Heap ${tel.heapUsedMb}MB`;
+      const gpuTag = gpu.available ? ` • VRAM ${gpu.vramUsedMb}/${gpu.vramTotalMb}MB` : '';
+      sbHealth.textContent = `CPU ${tel.cpuCores}c • RAM ${tel.memUsagePct}%${gpuTag}`;
     }
     const sbOllama = document.getElementById('sb-ollama-status');
     if (sbOllama) {
-      sbOllama.innerHTML = `<span class="status-dot ${ollamaOnline ? 'online' : 'warning'}"></span> Ollama: ${ollamaOnline ? 'Online' : 'Offline'}`;
+      sbOllama.innerHTML = `<span class="status-dot ${ollamaOnline ? 'online' : 'error'}"></span> Ollama: ${ollamaOnline ? 'Online' : 'Offline'}`;
     }
   }
 
@@ -328,18 +339,18 @@ window.MaxViews = (function () {
       };
       const tasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
 
-      // Update lifecycle stepper
-      const stages = ['PLANNING', 'INSPECTING', 'EXECUTING', 'TESTING', 'DIAGNOSING', 'REPAIRING', 'COMPLETED'];
+      // Update full lifecycle stepper
+      const stages = ['OBSERVING', 'PLANNING', 'WAITING_FOR_MODEL', 'EXECUTING', 'TESTING', 'REPAIRING', 'VERIFYING', 'COMPLETED'];
       const currentIdx = stages.indexOf(lifecycle);
       const stepperEl = document.getElementById('mc-stage-stepper');
       if (stepperEl) {
         stepperEl.innerHTML = stages.map((st, idx) => {
           let cls = 'stage-pill';
-          if (lifecycle === 'FAILED' && idx === Math.max(0, currentIdx)) cls += ' failed';
+          if (['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(lifecycle) && idx === Math.max(0, currentIdx)) cls += ' failed';
           else if (st === lifecycle) cls += ' active';
           else if (currentIdx > idx) cls += ' done';
           return `<span class="${cls}">${st}</span>`;
-        }).join('') + (lifecycle === 'FAILED' ? '<span class="stage-pill failed">FAILED</span>' : '');
+        }).join('') + (['FAILED', 'CANCELLED', 'INTERRUPTED', 'PARTIALLY_COMPLETED'].includes(lifecycle) ? `<span class="stage-pill failed">${lifecycle}</span>` : '');
       }
 
       const taskTitleEl = document.getElementById('mc-current-task');
@@ -1564,6 +1575,8 @@ window.MaxViews = (function () {
       { id: 'view-ws', label: 'Go to AI Engineering Workspace', shortcut: '', run: () => switchMainView('workspace') },
       { id: 'view-mc', label: 'Open Agent Mission Control', shortcut: '', run: () => switchMainView('mission') },
       { id: 'view-prev', label: 'Open Live Preview Studio', shortcut: '', run: () => switchMainView('preview') },
+      { id: 'view-intel', label: 'Open Project Intelligence & Memory', shortcut: '', run: () => switchMainView('intelligence') },
+      { id: 'view-aic', label: 'Open AI Control Center (Ollama & Hardware)', shortcut: '', run: () => switchMainView('ai-control') },
       { id: 'file-search', label: 'Quick Open File...', shortcut: 'Ctrl+P', run: () => openCommandPalette('files') },
       { id: 'focus-mode', label: 'Toggle Focus Mode', shortcut: 'Ctrl+Shift+F', run: () => window.toggleFocusMode && window.toggleFocusMode() },
       { id: 'toggle-term', label: 'Toggle Integrated Terminal', shortcut: 'Ctrl+`', run: () => window.toggleBottomPanel && window.toggleBottomPanel() },

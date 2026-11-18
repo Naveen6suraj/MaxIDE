@@ -111,8 +111,26 @@ window.MaxUI = (function () {
     const leftResizer = document.getElementById('resizer-left');
     const rightResizer = document.getElementById('resizer-right');
     const bottomResizer = document.getElementById('resizer-bottom');
+    const leftEl = document.getElementById('left-sidebar');
+    const rightEl = document.getElementById('right-sidebar');
+    const bottomEl = document.getElementById('bottom-panel');
 
-    function attachHorizontal(handle, targetEl, direction, minW, maxW) {
+    // Restore persisted workspace layout dimensions
+    try {
+      const saved = JSON.parse(localStorage.getItem('maxide_layout') || '{}');
+      if (saved.leftW && leftEl) leftEl.style.width = `${saved.leftW}px`;
+      if (saved.rightW && rightEl) rightEl.style.width = `${saved.rightW}px`;
+      if (saved.bottomH && bottomEl) bottomEl.style.height = `${saved.bottomH}px`;
+    } catch {}
+
+    function saveLayout(patch) {
+      try {
+        const cur = JSON.parse(localStorage.getItem('maxide_layout') || '{}');
+        localStorage.setItem('maxide_layout', JSON.stringify({ ...cur, ...patch }));
+      } catch {}
+    }
+
+    function attachHorizontal(handle, targetEl, direction, minW, maxW, storageKey) {
       if (!handle || !targetEl) return;
       handle.addEventListener('mousedown', (e) => {
         e.preventDefault();
@@ -130,6 +148,7 @@ window.MaxUI = (function () {
         const onUp = () => {
           handle.classList.remove('dragging');
           document.body.style.cursor = '';
+          saveLayout({ [storageKey]: Math.round(targetEl.getBoundingClientRect().width) });
           window.removeEventListener('mousemove', onMove);
           window.removeEventListener('mouseup', onUp);
         };
@@ -156,6 +175,7 @@ window.MaxUI = (function () {
         const onUp = () => {
           handle.classList.remove('dragging');
           document.body.style.cursor = '';
+          saveLayout({ bottomH: Math.round(targetEl.getBoundingClientRect().height) });
           window.removeEventListener('mousemove', onMove);
           window.removeEventListener('mouseup', onUp);
         };
@@ -164,9 +184,9 @@ window.MaxUI = (function () {
       });
     }
 
-    attachHorizontal(leftResizer, document.getElementById('left-sidebar'), 'left', 180, 440);
-    attachHorizontal(rightResizer, document.getElementById('right-sidebar'), 'right', 280, 560);
-    attachVertical(bottomResizer, document.getElementById('bottom-panel'), 110, Math.round(window.innerHeight * 0.55));
+    attachHorizontal(leftResizer, leftEl, 'left', 180, 440, 'leftW');
+    attachHorizontal(rightResizer, rightEl, 'right', 280, 560, 'rightW');
+    attachVertical(bottomResizer, bottomEl, 110, Math.round(window.innerHeight * 0.55));
   }
 
   function showContextMenu(x, y, items) {

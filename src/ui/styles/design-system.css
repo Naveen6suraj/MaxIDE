@@ -1801,7 +1801,8 @@ a:hover {
     --agent-w: 344px;
     --bottom-h: 196px;
   }
-  .search-trigger { min-width: 170px; }
+  .search-trigger { min-width: 140px; }
+  .view-tab { padding: 0 7px; font-size: 11px; }
 }
 
 @media (max-width: 1320px) {
@@ -1811,13 +1812,15 @@ a:hover {
     --bottom-h: 180px;
   }
   .brand-tag { display: none; }
-  .search-trigger { min-width: 130px; }
+  .search-trigger { min-width: 110px; }
+  .search-trigger .search-label { display: none; }
   .cc-quick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 1080px) {
   .cc-grid-main { grid-template-columns: 1fr; }
   .mission-grid { grid-template-columns: 1fr; }
+  #pi-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .cc-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .search-trigger span.search-label { display: none; }
   .search-trigger { min-width: auto; }

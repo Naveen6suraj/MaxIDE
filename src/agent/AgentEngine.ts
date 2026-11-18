@@ -48,7 +48,9 @@ import { AgentOrchestrator } from './orchestrator/AgentOrchestrator.js';
 import { VerificationEngine } from './verification/VerificationEngine.js';
 import { ClosedLoopTestEngine } from './verification/ClosedLoopTestEngine.js';
 
-export type TaskLifecycleState = 'IDLE' | 'PLANNING' | 'INSPECTING' | 'EXECUTING' | 'TESTING' | 'DIAGNOSING' | 'REPAIRING' | 'COMPLETED' | 'FAILED';
+import { ProjectMemoryManager } from './memory/ProjectMemoryManager.js';
+
+export type TaskLifecycleState = 'IDLE' | 'OBSERVING' | 'PLANNING' | 'WAITING_FOR_MODEL' | 'INSPECTING' | 'EXECUTING' | 'TESTING' | 'DIAGNOSING' | 'REPAIRING' | 'VERIFYING' | 'COMPLETED' | 'PARTIALLY_COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED';
 
 export interface TaskExecutionEvidence {
   inspectedFiles: string[];
@@ -144,6 +146,7 @@ export class AgentEngine {
   public readonly taskManager: TaskManager;
   public readonly jobManager: BackgroundJobManager;
   public readonly testEngine: ClosedLoopTestEngine;
+  public readonly projectMemory: ProjectMemoryManager;
   private currentLifecycleState: TaskLifecycleState = 'IDLE';
   private currentEvidence: TaskExecutionEvidence = {
     inspectedFiles: [],
@@ -179,6 +182,7 @@ export class AgentEngine {
     this.taskManager = new TaskManager(workspaceRoot);
     this.jobManager = new BackgroundJobManager(workspaceRoot);
     this.testEngine = new ClosedLoopTestEngine(workspaceRoot, this.safeTerminal, this.checkpointManager);
+    this.projectMemory = new ProjectMemoryManager(workspaceRoot);
     this.orchestrator = new AgentOrchestrator(
       workspaceRoot,
       this.artifactManager,
@@ -231,6 +235,7 @@ export class AgentEngine {
     this.taskManager.setWorkspaceRoot(newRoot);
     this.jobManager.setWorkspaceRoot(newRoot);
     this.testEngine.setWorkspaceRoot(newRoot);
+    this.projectMemory.setWorkspaceRoot(newRoot);
   }
 
   public setRecoveryManager(rm: RecoveryManager): void {
@@ -489,7 +494,9 @@ export class AgentEngine {
 
     // 3. Index codebase for context
     await this.intelligence.indexProject();
+    this.setLifecycleState('OBSERVING');
     const codebaseContext = this.intelligence.buildContext(taskPrompt, 2500);
+    const projectMemContext = this.projectMemory.buildPromptContext();
 
     const systemPrompt =
       'You are MaxIDE Agent, an elite AI software engineering agent operating directly on the user\'s real computer inside MaxIDE.\n' +
@@ -508,6 +515,7 @@ export class AgentEngine {
       '7. ARTICULATE, THOROUGH RESPONSES: Always provide a clear, beautifully formatted markdown walkthrough of what you did, the architecture, files created, and how to use it.\n\n' +
       'Relevant Codebase Context:\n' +
       codebaseContext +
+      (projectMemContext ? '\n\nPersistent Project Memory:\n' + projectMemContext : '') +
       '\n\nSolve the user request thoroughly using your registered tools. Methodically inspect, modify, run verification, diagnose any errors, and confirm completion.';
 
     const messages: ChatMessage[] = [
@@ -763,6 +771,7 @@ export class AgentEngine {
           } else if (['create_file', 'edit_file', 'writeFile', 'patch_file', 'createFile', 'editFile'].includes(tc.name)) {
             const p = (tc.arguments as any)?.path || (tc.arguments as any)?.file;
             if (p) this.currentEvidence.modifiedFiles.push(p);
+            if (p) this.intelligence.indexFileIncremental(p);
             this.setLifecycleState('EXECUTING');
           } else if (['run_command', 'execute_command', 'executeCommand'].includes(tc.name)) {
             const c = (tc.arguments as any)?.command;
@@ -924,9 +933,13 @@ export class AgentEngine {
     const taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
 
     if (taskActuallySucceeded) {
+      this.setLifecycleState('VERIFYING');
       this.setLifecycleState('COMPLETED');
+      this.projectMemory.recordTask(taskPrompt, 'COMPLETED', filesTouched);
     } else {
-      this.setLifecycleState('FAILED');
+      const partial = physicalFilesExist && testsFailed;
+      this.setLifecycleState(partial ? 'PARTIALLY_COMPLETED' : 'FAILED');
+      this.projectMemory.recordTask(taskPrompt, partial ? 'PARTIALLY_COMPLETED' : 'FAILED', filesTouched);
     }
 
     if (!finalAnswer || finalAnswer.trim() === 'Task completed successfully.' || ContentSanitizer.isToolEnvelope(finalAnswer)) {
