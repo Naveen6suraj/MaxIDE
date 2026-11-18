@@ -72,6 +72,7 @@ export class ExperienceMemory {
   private dbPath: string;
   private db: any = null;
   private readyPromise: Promise<void>;
+  private flushSeq: number = 0;
 
   constructor(dbPath: string) {
     this.dbPath = path.resolve(dbPath);
@@ -105,9 +106,14 @@ export class ExperienceMemory {
     if (fs.existsSync(this.dbPath)) {
       try {
         const buf = fs.readFileSync(this.dbPath);
+        if (buf.length < 16 || !buf.subarray(0, 16).toString('utf8').startsWith('SQLite format 3')) {
+          throw new Error('Invalid SQLite file magic header');
+        }
         this.db = new SQL.Database(new Uint8Array(buf));
+        // Force immediate integrity verification so sql.js surfaces corrupt pages inside catch
+        this.db.exec('PRAGMA quick_check;');
       } catch {
-        // Backup corrupt DB and start fresh cleanly
+        // Quarantine corrupt DB and start fresh cleanly
         try {
           fs.renameSync(this.dbPath, `${this.dbPath}.corrupt.${Date.now()}`);
         } catch {}
@@ -239,18 +245,49 @@ export class ExperienceMemory {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS validation_runs (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        benchmark_version TEXT NOT NULL,
+        algorithm TEXT NOT NULL,
+        approved INTEGER NOT NULL DEFAULT 0,
+        baseline_completion_pct REAL NOT NULL DEFAULT 0,
+        learned_completion_pct REAL NOT NULL DEFAULT 0,
+        baseline_reward REAL NOT NULL DEFAULT 0,
+        learned_reward REAL NOT NULL DEFAULT 0,
+        ci95_low REAL,
+        ci95_high REAL,
+        summary_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS policy_rollbacks (
+        id TEXT PRIMARY KEY,
+        from_version TEXT NOT NULL,
+        to_version TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
   /**
-   * Atomically flush in-memory SQLite database to disk.
+   * Atomically flush in-memory SQLite database to disk with monotonic sequence number.
    */
   public flush(): void {
     if (!this.db) return;
     const data: Uint8Array = this.db.export();
-    const tmp = `${this.dbPath}.tmp.${process.pid}.${Date.now()}`;
+    this.flushSeq++;
+    const tmp = `${this.dbPath}.tmp.${process.pid}.${Date.now()}.${this.flushSeq}`;
     fs.writeFileSync(tmp, Buffer.from(data));
-    fs.renameSync(tmp, this.dbPath);
+    try {
+      fs.renameSync(tmp, this.dbPath);
+    } catch {
+      // Windows fallback when target file handle is briefly locked by AV/indexer
+      fs.copyFileSync(tmp, this.dbPath);
+      try { fs.unlinkSync(tmp); } catch {}
+    }
   }
 
   public queryAll(sql: string, params: any[] = []): Record<string, any>[] {
@@ -345,7 +382,7 @@ export class ExperienceMemory {
       clauses.push('verified = 1');
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-    const limit = Math.min(200, Math.max(1, options.limit || 50));
+    const limit = Math.min(5000, Math.max(1, options.limit || 50));
     const rows = this.queryAll(`SELECT * FROM episodic_memory ${where} ORDER BY created_at DESC LIMIT ?`, [...params, limit]);
     return rows.map(this.mapEpisodicRow);
   }
@@ -636,6 +673,81 @@ export class ExperienceMemory {
   public getSetting(key: string): string | null {
     const row = this.queryAll(`SELECT value FROM governance_settings WHERE key = ?`, [key])[0];
     return row ? String(row.value) : null;
+  }
+
+  public recordValidationRun(input: {
+    id?: string;
+    source: 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION';
+    benchmarkVersion: string;
+    algorithm: string;
+    approved: boolean;
+    baselineCompletionPct: number;
+    learnedCompletionPct: number;
+    baselineReward: number;
+    learnedReward: number;
+    ci95Low?: number;
+    ci95High?: number;
+    summary: Record<string, any>;
+  }): string {
+    const id = input.id || `valrun-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    const safeSummary = JSON.stringify(PolicyGovernance.sanitizeObject(input.summary));
+    this.execute(
+      `INSERT OR REPLACE INTO validation_runs
+       (id, source, benchmark_version, algorithm, approved, baseline_completion_pct, learned_completion_pct, baseline_reward, learned_reward, ci95_low, ci95_high, summary_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.source,
+        input.benchmarkVersion,
+        input.algorithm,
+        input.approved ? 1 : 0,
+        input.baselineCompletionPct,
+        input.learnedCompletionPct,
+        input.baselineReward,
+        input.learnedReward,
+        input.ci95Low ?? null,
+        input.ci95High ?? null,
+        safeSummary,
+        new Date().toISOString(),
+      ]
+    );
+    return id;
+  }
+
+  public getValidationRuns(limit: number = 30): Array<{
+    id: string;
+    source: 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION';
+    benchmarkVersion: string;
+    algorithm: string;
+    approved: boolean;
+    baselineCompletionPct: number;
+    learnedCompletionPct: number;
+    baselineReward: number;
+    learnedReward: number;
+    ci95Low: number | null;
+    ci95High: number | null;
+    summary: Record<string, any>;
+    createdAt: string;
+  }> {
+    return this.queryAll(`SELECT * FROM validation_runs ORDER BY created_at DESC LIMIT ?`, [limit]).map((r) => {
+      let summary: Record<string, any> = {};
+      try { summary = JSON.parse(r.summary_json || '{}'); } catch {}
+      return {
+        id: r.id,
+        source: (r.source === 'REAL_AGENT_EXECUTION' ? 'REAL_AGENT_EXECUTION' : 'SIMULATED_BENCHMARK') as 'SIMULATED_BENCHMARK' | 'REAL_AGENT_EXECUTION',
+        benchmarkVersion: r.benchmark_version,
+        algorithm: r.algorithm,
+        approved: Boolean(r.approved),
+        baselineCompletionPct: Number(r.baseline_completion_pct || 0),
+        learnedCompletionPct: Number(r.learned_completion_pct || 0),
+        baselineReward: Number(r.baseline_reward || 0),
+        learnedReward: Number(r.learned_reward || 0),
+        ci95Low: r.ci95_low !== null && r.ci95_low !== undefined ? Number(r.ci95_low) : null,
+        ci95High: r.ci95_high !== null && r.ci95_high !== undefined ? Number(r.ci95_high) : null,
+        summary,
+        createdAt: r.created_at,
+      };
+    });
   }
 
   public deleteRecord(table: 'episodic_memory' | 'semantic_memory' | 'procedural_memory', id: string): boolean {

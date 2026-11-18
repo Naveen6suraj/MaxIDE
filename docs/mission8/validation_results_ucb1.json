@@ -1,0 +1,574 @@
+{
+  "benchmarkVersion": "v1.0.0-mission8",
+  "generatedAt": "2026-11-18T17:09:34.017Z",
+  "source": "SIMULATED_BENCHMARK",
+  "totalScenarios": 120,
+  "trainCount": 60,
+  "validationCount": 24,
+  "holdoutCount": 36,
+  "zeroLeakageVerified": true,
+  "algorithm": "UCB1",
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505
+  ],
+  "systemComparison": [
+    {
+      "system": "A_BASELINE",
+      "label": "A. Original Baseline Strategy",
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "holdoutTasksPerSeed": 36,
+      "metrics": {
+        "verifiedCompletionRate": 27.778,
+        "requirementCoverage": 43.75,
+        "buildSuccessRate": 75,
+        "testSuccessRate": 37.778,
+        "regressionRate": 15,
+        "securityViolationRate": 2.222,
+        "securityViolationsCount": 4,
+        "userCorrectionRate": 57.778,
+        "meanExecutionCostMs": 11771,
+        "recoverySuccessRate": 47.221,
+        "meanReward": 0.1415
+      },
+      "completionCI95": {
+        "mean": 27.778,
+        "variance": 65.59,
+        "stdDev": 8.099,
+        "ci95Low": 20.679,
+        "ci95High": 34.877,
+        "n": 5
+      },
+      "rewardCI95": {
+        "mean": 0.141,
+        "variance": 0.0058,
+        "stdDev": 0.076,
+        "ci95Low": 0.075,
+        "ci95High": 0.208,
+        "n": 5
+      },
+      "strategyDistribution": {
+        "native-electron-node": 15,
+        "vite-typescript-spa": 15,
+        "zero-dep-node-http-service": 30,
+        "ad-hoc-inline-sql": 15,
+        "defensive-guard-and-fallback-patch": 15,
+        "big-bang-rewrite": 15,
+        "incremental-ux-polish-pass": 15,
+        "shallow-smoke-test": 15,
+        "monolithic-coupled-design": 15,
+        "force-reinstall-latest": 15,
+        "overwrite-template-replacement": 15
+      }
+    },
+    {
+      "system": "B_HEURISTIC",
+      "label": "B. Fixed 9-Criteria Heuristic",
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "holdoutTasksPerSeed": 36,
+      "metrics": {
+        "verifiedCompletionRate": 70,
+        "requirementCoverage": 76.72,
+        "buildSuccessRate": 94.444,
+        "testSuccessRate": 73.889,
+        "regressionRate": 3.334,
+        "securityViolationRate": 0,
+        "securityViolationsCount": 0,
+        "userCorrectionRate": 23.333,
+        "meanExecutionCostMs": 11512,
+        "recoverySuccessRate": 66.945,
+        "meanReward": 0.6498
+      },
+      "completionCI95": {
+        "mean": 70,
+        "variance": 43.9821,
+        "stdDev": 6.632,
+        "ci95Low": 64.187,
+        "ci95High": 75.813,
+        "n": 5
+      },
+      "rewardCI95": {
+        "mean": 0.65,
+        "variance": 0.0032,
+        "stdDev": 0.056,
+        "ci95Low": 0.6,
+        "ci95High": 0.699,
+        "n": 5
+      },
+      "strategyDistribution": {
+        "native-winforms-csc": 15,
+        "vite-typescript-spa": 15,
+        "nextjs-app-router-incremental": 15,
+        "modular-node-ts-sqlite-service": 15,
+        "repository-indexed-sqlite": 15,
+        "reproduce-root-cause-surgical-fix": 15,
+        "incremental-strangler-refactor": 15,
+        "self-directed-quality-loop": 15,
+        "hermetic-unit-and-integration-suite": 15,
+        "modular-hexagonal-architecture": 15,
+        "pinned-lockfile-diagnostics": 15,
+        "inspect-first-surgical-extension": 15
+      }
+    },
+    {
+      "system": "C_BANDIT_NO_MEM",
+      "label": "C. Contextual Bandit (No Memory)",
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "holdoutTasksPerSeed": 36,
+      "metrics": {
+        "verifiedCompletionRate": 67.778,
+        "requirementCoverage": 74.742,
+        "buildSuccessRate": 93.889,
+        "testSuccessRate": 72.222,
+        "regressionRate": 5,
+        "securityViolationRate": 0.556,
+        "securityViolationsCount": 1,
+        "userCorrectionRate": 25,
+        "meanExecutionCostMs": 10909,
+        "recoverySuccessRate": 78.937,
+        "meanReward": 0.6354
+      },
+      "completionCI95": {
+        "mean": 67.778,
+        "variance": 141.1996,
+        "stdDev": 11.883,
+        "ci95Low": 57.362,
+        "ci95High": 78.193,
+        "n": 5
+      },
+      "rewardCI95": {
+        "mean": 0.635,
+        "variance": 0.0165,
+        "stdDev": 0.128,
+        "ci95Low": 0.523,
+        "ci95High": 0.748,
+        "n": 5
+      },
+      "strategyDistribution": {
+        "native-winforms-csc": 5,
+        "native-wpf-dotnet": 8,
+        "modular-multi-file-web-app": 3,
+        "self-contained-interactive-web-app": 9,
+        "zero-dep-node-http-service": 8,
+        "modular-node-ts-sqlite-service": 18,
+        "transactional-versioned-migration": 10,
+        "repository-indexed-sqlite": 4,
+        "reproduce-root-cause-surgical-fix": 13,
+        "test-pinned-surgical-refactor": 12,
+        "self-directed-quality-loop": 13,
+        "static-refactor-and-test-hardening": 6,
+        "hermetic-unit-and-integration-suite": 4,
+        "playwright-e2e-visual-verification": 11,
+        "modular-hexagonal-architecture": 9,
+        "event-driven-plugin-architecture": 5,
+        "pure-js-or-cjs-interop-fix": 11,
+        "inspect-first-surgical-extension": 5,
+        "native-tauri-rust": 2,
+        "vite-typescript-spa": 3,
+        "contract-first-openapi-service": 3,
+        "ad-hoc-inline-sql": 1,
+        "blind-file-rewrite": 2,
+        "big-bang-rewrite": 2,
+        "incremental-strangler-refactor": 1,
+        "pinned-lockfile-diagnostics": 4,
+        "incremental-ux-polish-pass": 2,
+        "monolithic-coupled-design": 1,
+        "overwrite-template-replacement": 4,
+        "nextjs-app-router-incremental": 1
+      }
+    },
+    {
+      "system": "D_BANDIT_WITH_MEM",
+      "label": "D. Contextual Bandit + Experience Memory",
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "holdoutTasksPerSeed": 36,
+      "metrics": {
+        "verifiedCompletionRate": 58.889,
+        "requirementCoverage": 65.858,
+        "buildSuccessRate": 92.778,
+        "testSuccessRate": 65,
+        "regressionRate": 11.667,
+        "securityViolationRate": 0,
+        "securityViolationsCount": 0,
+        "userCorrectionRate": 28.333,
+        "meanExecutionCostMs": 10783,
+        "recoverySuccessRate": 70.055,
+        "meanReward": 0.5301
+      },
+      "completionCI95": {
+        "mean": 58.889,
+        "variance": 67.1276,
+        "stdDev": 8.193,
+        "ci95Low": 51.707,
+        "ci95High": 66.07,
+        "n": 5
+      },
+      "rewardCI95": {
+        "mean": 0.53,
+        "variance": 0.0051,
+        "stdDev": 0.071,
+        "ci95Low": 0.468,
+        "ci95High": 0.593,
+        "n": 5
+      },
+      "strategyDistribution": {
+        "native-winforms-csc": 8,
+        "native-wpf-dotnet": 5,
+        "native-tauri-rust": 1,
+        "self-contained-interactive-web-app": 7,
+        "modular-multi-file-web-app": 7,
+        "modular-node-ts-sqlite-service": 13,
+        "nextjs-app-router-incremental": 4,
+        "zero-dep-node-http-service": 10,
+        "transactional-versioned-migration": 6,
+        "ad-hoc-inline-sql": 3,
+        "repository-indexed-sqlite": 6,
+        "reproduce-root-cause-surgical-fix": 7,
+        "blind-file-rewrite": 6,
+        "big-bang-rewrite": 10,
+        "self-directed-quality-loop": 8,
+        "incremental-ux-polish-pass": 5,
+        "hermetic-unit-and-integration-suite": 8,
+        "modular-hexagonal-architecture": 7,
+        "pure-js-or-cjs-interop-fix": 8,
+        "overwrite-template-replacement": 6,
+        "native-electron-node": 1,
+        "contract-first-openapi-service": 3,
+        "defensive-guard-and-fallback-patch": 2,
+        "test-pinned-surgical-refactor": 3,
+        "static-refactor-and-test-hardening": 4,
+        "shallow-smoke-test": 2,
+        "monolithic-coupled-design": 5,
+        "event-driven-plugin-architecture": 3,
+        "pinned-lockfile-diagnostics": 4,
+        "force-reinstall-latest": 3,
+        "inspect-first-surgical-extension": 7,
+        "vite-typescript-spa": 1,
+        "incremental-strangler-refactor": 2,
+        "playwright-e2e-visual-verification": 5
+      }
+    }
+  ],
+  "learningCurves": [
+    {
+      "budget": 10,
+      "systemC_completion": {
+        "mean": 69.445,
+        "variance": 42.4395,
+        "stdDev": 6.515,
+        "ci95Low": 63.734,
+        "ci95High": 75.155,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 71.111,
+        "variance": 56.3281,
+        "stdDev": 7.505,
+        "ci95Low": 64.533,
+        "ci95High": 77.69,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.659,
+        "variance": 0.0067,
+        "stdDev": 0.082,
+        "ci95Low": 0.588,
+        "ci95High": 0.731,
+        "n": 5
+      },
+      "trainCompletionMean": 52,
+      "overfitGapPct": -19.111,
+      "strategyEntropyNorm": 0.9818,
+      "armCoveragePct": 9.009
+    },
+    {
+      "budget": 50,
+      "systemC_completion": {
+        "mean": 58.333,
+        "variance": 73.3059,
+        "stdDev": 8.562,
+        "ci95Low": 50.829,
+        "ci95High": 65.838,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 57.778,
+        "variance": 43.9821,
+        "stdDev": 6.632,
+        "ci95Low": 51.965,
+        "ci95High": 63.591,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.545,
+        "variance": 0.0024,
+        "stdDev": 0.049,
+        "ci95Low": 0.503,
+        "ci95High": 0.588,
+        "n": 5
+      },
+      "trainCompletionMean": 62.8,
+      "overfitGapPct": 5.022,
+      "strategyEntropyNorm": 0.9697,
+      "armCoveragePct": 42.703
+    },
+    {
+      "budget": 100,
+      "systemC_completion": {
+        "mean": 51.667,
+        "variance": 67.901,
+        "stdDev": 8.24,
+        "ci95Low": 44.444,
+        "ci95High": 58.89,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 61.667,
+        "variance": 28.5495,
+        "stdDev": 5.343,
+        "ci95Low": 56.983,
+        "ci95High": 66.35,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.582,
+        "variance": 0.0036,
+        "stdDev": 0.06,
+        "ci95Low": 0.53,
+        "ci95High": 0.635,
+        "n": 5
+      },
+      "trainCompletionMean": 58.4,
+      "overfitGapPct": -3.267,
+      "strategyEntropyNorm": 0.9656,
+      "armCoveragePct": 66.306
+    },
+    {
+      "budget": 250,
+      "systemC_completion": {
+        "mean": 67.778,
+        "variance": 141.1996,
+        "stdDev": 11.883,
+        "ci95Low": 57.362,
+        "ci95High": 78.193,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 58.889,
+        "variance": 67.1276,
+        "stdDev": 8.193,
+        "ci95Low": 51.707,
+        "ci95High": 66.07,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.53,
+        "variance": 0.0051,
+        "stdDev": 0.071,
+        "ci95Low": 0.468,
+        "ci95High": 0.593,
+        "n": 5
+      },
+      "trainCompletionMean": 60.64,
+      "overfitGapPct": 1.751,
+      "strategyEntropyNorm": 0.9683,
+      "armCoveragePct": 94.054
+    },
+    {
+      "budget": 500,
+      "systemC_completion": {
+        "mean": 67.222,
+        "variance": 70.9854,
+        "stdDev": 8.425,
+        "ci95Low": 59.837,
+        "ci95High": 74.607,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 62.222,
+        "variance": 56.3265,
+        "stdDev": 7.505,
+        "ci95Low": 55.644,
+        "ci95High": 68.801,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.591,
+        "variance": 0.0041,
+        "stdDev": 0.064,
+        "ci95Low": 0.535,
+        "ci95High": 0.647,
+        "n": 5
+      },
+      "trainCompletionMean": 61.08,
+      "overfitGapPct": -1.142,
+      "strategyEntropyNorm": 0.9631,
+      "armCoveragePct": 100
+    },
+    {
+      "budget": 1000,
+      "systemC_completion": {
+        "mean": 68.333,
+        "variance": 94.9062,
+        "stdDev": 9.742,
+        "ci95Low": 59.794,
+        "ci95High": 76.873,
+        "n": 5
+      },
+      "systemD_completion": {
+        "mean": 68.333,
+        "variance": 21.604,
+        "stdDev": 4.648,
+        "ci95Low": 64.259,
+        "ci95High": 72.407,
+        "n": 5
+      },
+      "systemD_reward": {
+        "mean": 0.656,
+        "variance": 0.0035,
+        "stdDev": 0.06,
+        "ci95Low": 0.604,
+        "ci95High": 0.709,
+        "n": 5
+      },
+      "trainCompletionMean": 62.6,
+      "overfitGapPct": -5.733,
+      "strategyEntropyNorm": 0.9561,
+      "armCoveragePct": 100
+    }
+  ],
+  "pathologies": {
+    "overfitting": {
+      "trainCompletionPct": 62.6,
+      "holdoutCompletionPct": 68.333,
+      "gapPct": -5.733,
+      "detected": false
+    },
+    "catastrophicForgetting": {
+      "group1BeforePct": 50,
+      "group1AfterGroup2TrainingPct": 50,
+      "forgettingDeltaPct": 0,
+      "detected": false
+    },
+    "strategyCollapse": {
+      "normalizedEntropy": 0.9582,
+      "uniqueStrategiesUsed": 34,
+      "totalCandidateStrategies": 34,
+      "detected": false
+    },
+    "rewardExploitation": {
+      "baselineReward": 0.1415,
+      "learnedReward": 0.5301,
+      "baselineCompletionPct": 27.778,
+      "learnedCompletionPct": 58.889,
+      "rewardWithoutCompletionGain": false
+    },
+    "poorExploration": {
+      "exploredArms": 111,
+      "totalArms": 111,
+      "coveragePct": 100,
+      "detected": false
+    },
+    "excessiveRetries": {
+      "baselineRetryRatePct": 45,
+      "learnedRetryRatePct": 37.222,
+      "detected": false
+    },
+    "memoryContamination": {
+      "cleanHoldoutCompletionPct": 58.333,
+      "contaminatedHoldoutCompletionPct": 58.333,
+      "degradationPct": 0,
+      "detected": false
+    }
+  },
+  "generalization": {
+    "crossDomain": {
+      "trainDomains": [
+        "REACT",
+        "BACKEND",
+        "DEBUGGING",
+        "TESTING",
+        "REFACTORING",
+        "ARCHITECTURE"
+      ],
+      "unseenDomains": [
+        "NATIVE_WINDOWS",
+        "NEXTJS",
+        "DATABASE",
+        "UI_IMPROVEMENT",
+        "DEPENDENCY_FAILURE",
+        "EXISTING_CODEBASE"
+      ],
+      "baselineCompletionPct": 28.889,
+      "heuristicCompletionPct": 73.333,
+      "banditNoMemCompletionPct": 73.333,
+      "banditWithMemCompletionPct": 73.333,
+      "memoryTransferDeltaPct": 0
+    },
+    "crossModelTier": {
+      "trainTier": "local-small",
+      "unseenTiers": [
+        "local-medium",
+        "cloud"
+      ],
+      "baselineCompletionPct": 30.834,
+      "heuristicCompletionPct": 73.333,
+      "banditNoMemCompletionPct": 73.333,
+      "banditWithMemCompletionPct": 75,
+      "notes": "Exact context keys isolate modelTier so local-small failure patterns do not overwrite cloud arms; unseen tiers fall back to 9-criteria heuristics + similar memory."
+    },
+    "unseenCombos": [
+      {
+        "comboLabel": "Legacy Codebase + Runtime/Dependency Errors (n=15)",
+        "baselinePct": 33.333,
+        "learnedPct": 66.667,
+        "deltaPct": 33.334
+      },
+      {
+        "comboLabel": "Monorepo TypeScript (Next.js / Refactor / Arch) (n=12)",
+        "baselinePct": 25,
+        "learnedPct": 58.333,
+        "deltaPct": 33.333
+      },
+      {
+        "comboLabel": "Greenfield Native Windows & React UI (n=6)",
+        "baselinePct": 50,
+        "learnedPct": 50,
+        "deltaPct": 0
+      },
+      {
+        "comboLabel": "Microservice Backend Services (n=3)",
+        "baselinePct": 33.333,
+        "learnedPct": 66.667,
+        "deltaPct": 33.334
+      }
+    ]
+  }
+}

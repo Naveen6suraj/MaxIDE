@@ -27,6 +27,7 @@ import { VerificationEngine } from '../agent/verification/VerificationEngine.js'
 import { MediaInspector } from '../agent/tools/MediaInspector.js';
 import { OllamaProvider } from '../ai/providers/ollama/OllamaProvider.js';
 import { ReasoningDecisionEngine } from '../intelligence/index.js';
+import { runFullMission8Validation } from '../intelligence/validation/ValidationRunner.js';
 
 // Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
 function streamFileWithRange(req: any, res: any, absPath: string): void {
@@ -1624,9 +1625,9 @@ export function createApiRouter(
       const coord = agentEngine.adaptiveIntelligence;
       if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
       await coord.ready();
-      const { versionId } = req.body || {};
+      const { versionId, reason } = req.body || {};
       if (!versionId) return res.status(400).json({ error: 'versionId is required.' });
-      const result = coord.bandit.rollbackPolicy(String(versionId));
+      const result = coord.bandit.rollbackPolicy(String(versionId), String(reason || 'User-initiated rollback from Intelligence Center'));
       if (!result.success) return res.status(404).json(result);
       res.json(result);
     } catch (err: any) {
@@ -1703,6 +1704,51 @@ export function createApiRouter(
         : undefined;
       coord.memory.clearMemory(projectId);
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/run-mission8-benchmark', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const exploitOnHoldout = req.body?.exploitOnHoldout !== false;
+      const report = await runFullMission8Validation({
+        algorithm: coord.bandit.getAlgorithm(),
+        seeds: [101, 202, 303],
+        budgets: [10, 50, 100, 250],
+        exploitOnHoldout,
+      });
+      const sysA = report.systemComparison.find((s) => s.system === 'A_BASELINE');
+      const sysD = report.systemComparison.find((s) => s.system === 'D_BANDIT_WITH_MEM');
+      const gate = coord.governance.approvePolicyUpdate({
+        baselineScore: sysA?.metrics.meanReward ?? 0,
+        candidateScore: sysD?.metrics.meanReward ?? 0,
+        evaluatedTasks: report.holdoutCount * report.seeds.length,
+      });
+      const runId = coord.memory.recordValidationRun({
+        source: 'SIMULATED_BENCHMARK',
+        benchmarkVersion: report.benchmarkVersion,
+        algorithm: report.algorithm,
+        approved: gate.approved,
+        baselineCompletionPct: sysA?.metrics.verifiedCompletionRate ?? 0,
+        learnedCompletionPct: sysD?.metrics.verifiedCompletionRate ?? 0,
+        baselineReward: sysA?.metrics.meanReward ?? 0,
+        learnedReward: sysD?.metrics.meanReward ?? 0,
+        ci95Low: sysD?.completionCI95.ci95Low,
+        ci95High: sysD?.completionCI95.ci95High,
+        summary: {
+          exploitOnHoldout,
+          reason: gate.reason,
+          systemComparison: report.systemComparison,
+          learningCurves: report.learningCurves,
+          generalization: report.generalization,
+          pathologies: report.pathologies,
+        },
+      });
+      res.json({ success: true, runId, approved: gate.approved, reason: gate.reason, report });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

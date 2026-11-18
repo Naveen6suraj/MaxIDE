@@ -184,12 +184,14 @@ export class ContextualBandit {
   public selectStrategy(
     context: BanditContext,
     candidateStrategyIds: string[],
-    heuristicPriors?: Record<string, number>
+    heuristicPriors?: Record<string, number>,
+    options?: { exploitOnly?: boolean }
   ): BanditSelection {
     if (candidateStrategyIds.length === 0) {
       throw new Error('ContextualBandit.selectStrategy requires at least one candidate strategy.');
     }
 
+    const exploitOnly = Boolean(options?.exploitOnly);
     const contextKey = ContextualBandit.buildContextKey(context);
     const arms = candidateStrategyIds.map((id) => this.getArm(contextKey, id));
     const totalPulls = arms.reduce((acc, a) => acc + a.pulls, 0);
@@ -214,7 +216,11 @@ export class ContextualBandit {
       let uncertaintyBonus = 0;
       let score = 0;
 
-      if (this.algorithm === 'THOMPSON_SAMPLING') {
+      if (exploitOnly) {
+        // Pure posterior-mean exploitation for unbiased holdout evaluation
+        score = regMean - failureDamping;
+        uncertaintyBonus = 0;
+      } else if (this.algorithm === 'THOMPSON_SAMPLING') {
         const sampled = this.sampleBeta(arm.alpha, arm.beta);
         // Blend sampled posterior with prior heuristic when sample count is tiny
         const weight = arm.pulls / (arm.pulls + this.priorPulls);
@@ -347,12 +353,13 @@ export class ContextualBandit {
   /**
    * Roll back arm statistics, algorithm, and weights to any prior versioned snapshot.
    */
-  public rollbackPolicy(versionId: string): { success: boolean; restoredVersion?: PolicyVersionRecord; error?: string } {
+  public rollbackPolicy(versionId: string, reason: string = 'User-initiated policy rollback'): { success: boolean; restoredVersion?: PolicyVersionRecord; error?: string } {
     const row = this.memory.queryAll(`SELECT * FROM policy_versions WHERE version_id = ?`, [versionId])[0];
     if (!row) {
       return { success: false, error: `Policy version "${versionId}" not found.` };
     }
 
+    const activeBefore = this.getPolicyVersions().find((v) => v.isActive)?.versionId || 'unknown';
     let arms: ArmStatistics[] = [];
     try { arms = JSON.parse(row.arms_snapshot_json || '[]'); } catch {}
 
@@ -382,10 +389,25 @@ export class ContextualBandit {
       );
     }
     this.memory.execute(`UPDATE policy_versions SET is_active = 0`, [], false);
-    this.memory.execute(`UPDATE policy_versions SET is_active = 1 WHERE version_id = ?`, [versionId], true);
+    this.memory.execute(`UPDATE policy_versions SET is_active = 1 WHERE version_id = ?`, [versionId], false);
+    this.memory.execute(
+      `INSERT INTO policy_rollbacks (id, from_version, to_version, reason, created_at) VALUES (?, ?, ?, ?, ?)`,
+      [`rb-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`, activeBefore, versionId, reason, new Date().toISOString()],
+      true
+    );
 
     const restored = this.getPolicyVersions().find((v) => v.versionId === versionId);
     return { success: true, restoredVersion: restored };
+  }
+
+  public getRollbackHistory(): Array<{ id: string; fromVersion: string; toVersion: string; reason: string; createdAt: string }> {
+    return this.memory.queryAll(`SELECT * FROM policy_rollbacks ORDER BY created_at DESC LIMIT 30`).map((r) => ({
+      id: r.id,
+      fromVersion: r.from_version,
+      toVersion: r.to_version,
+      reason: r.reason || '',
+      createdAt: r.created_at,
+    }));
   }
 
   // --- Beta(alpha, beta) Sampling via Gamma(alpha, 1) / (Gamma(alpha, 1) + Gamma(beta, 1)) ---

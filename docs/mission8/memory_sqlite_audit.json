@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-11-18T17:17:13.138Z",
+  "memoryQualityAudit": {
+    "retrievalRelevance": {
+      "queriesTested": 6,
+      "top1AccuracyPct": 100,
+      "precisionAt3Pct": 100,
+      "passed": true
+    },
+    "projectIsolation": {
+      "leakedEpisodes": 0,
+      "leakedSemantic": 0,
+      "passed": true
+    },
+    "duplicateDetection": {
+      "identicalWritesAttempted": 5,
+      "storedRows": 5,
+      "deduplicationImplemented": false,
+      "finding": "HONEST FINDING: Mission 7 ExperienceMemory lacks episode deduplication — 5 identical episodes created 5 separate rows, which can crowd top-K similarity results."
+    },
+    "staleMemoryDetection": {
+      "topMatchId": "fresh-0d",
+      "topMatchSim": 0.674,
+      "secondMatchId": "stale-180d",
+      "secondMatchSim": 0.674,
+      "recencyDecayImplemented": false,
+      "finding": "HONEST FINDING: Mission 7 similarity retrieval assigns identical cosine score to a 180-day-old episode and a fresh episode (no recency/staleness decay)."
+    },
+    "incorrectMemoryCorrection": {
+      "semanticUpdatedValue": "Corrected: Vanilla HTML5 + Monaco",
+      "semanticVersion": 2,
+      "feedbackAdjustedReward": 0.65,
+      "passed": true
+    },
+    "memoryDeletion": {
+      "remainingSemantic": 0,
+      "remainingEpisodes": 0,
+      "passed": true
+    },
+    "persistenceAfterRestart": {
+      "episodicCountBefore": 25,
+      "episodicCountAfterReload": 25,
+      "passed": true
+    },
+    "sensitiveDataExclusion": {
+      "secretClassesTested": 8,
+      "leakedCount": 0,
+      "passed": true
+    }
+  },
+  "sqliteReliabilityAudit": {
+    "concurrentAndAtomic": {
+      "writesAttempted": 50,
+      "rowsPersisted": 50,
+      "errorsCount": 0,
+      "sampleError": null,
+      "orphanedTmpFiles": 0,
+      "validSqliteHeader": true
+    },
+    "abruptTermination": {
+      "survivedRows": 6,
+      "validSqliteHeader": true,
+      "passed": true
+    },
+    "corruptDbRecovery": {
+      "quarantinedBackupCreated": true,
+      "writableAfterRecovery": true,
+      "passed": true
+    },
+    "backupAndRestore": {
+      "exportedEpisodes": 26,
+      "restoredEpisodes": 26,
+      "getEpisodes200CapWarning": "ExperienceMemory.getEpisodes() enforces Math.min(200, limit), so backups with >200 episodes would truncate unless fixed!",
+      "passed": true
+    },
+    "growthScaling": [
+      {
+        "episodes": 100,
+        "fileSizeKb": 164,
+        "flushMs": 3,
+        "queryMs": 3,
+        "heapUsedMb": 10.3
+      },
+      {
+        "episodes": 500,
+        "fileSizeKb": 324,
+        "flushMs": 5,
+        "queryMs": 8,
+        "heapUsedMb": 10.5
+      },
+      {
+        "episodes": 1000,
+        "fileSizeKb": 520,
+        "flushMs": 4,
+        "queryMs": 9,
+        "heapUsedMb": 8.4
+      },
+      {
+        "episodes": 5000,
+        "fileSizeKb": 2084,
+        "flushMs": 4,
+        "queryMs": 23,
+        "heapUsedMb": 9.3
+      }
+    ]
+  }
+}

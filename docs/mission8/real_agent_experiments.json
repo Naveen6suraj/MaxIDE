@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-11-18T17:13:26.939Z",
+  "source": "REAL_AGENT_EXECUTION",
+  "modelId": "qwen2.5-coder:3b",
+  "baselineVerifiedCount": 1,
+  "learnedVerifiedCount": 1,
+  "totalTasksPerPolicy": 3,
+  "baselineCompletionPct": 33.3,
+  "learnedCompletionPct": 33.3,
+  "experiments": [
+    {
+      "experimentId": "exp1-web-baseline",
+      "title": "Web App Build: Interactive Budget Expense Tracker",
+      "policy": "BASELINE",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 26425,
+      "agentReportedSuccess": true,
+      "strategySelected": null,
+      "filesCreatedOrModified": [
+        "app.js",
+        "index.html",
+        "styles.css"
+      ],
+      "buildOrCompilePassed": true,
+      "testsPassed": true,
+      "browserVerified": true,
+      "consoleErrors": 0,
+      "verifiedOutcome": true,
+      "notes": "DOM textLen=113, interactiveControls=5, errors=0"
+    },
+    {
+      "experimentId": "exp1-web-learned",
+      "title": "Web App Build: Interactive Budget Expense Tracker",
+      "policy": "LEARNED",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 22012,
+      "agentReportedSuccess": true,
+      "strategySelected": "modular-multi-file-web-app",
+      "filesCreatedOrModified": [
+        "app.js",
+        "index.html",
+        "styles.css"
+      ],
+      "buildOrCompilePassed": true,
+      "testsPassed": true,
+      "browserVerified": true,
+      "consoleErrors": 0,
+      "verifiedOutcome": true,
+      "notes": "DOM textLen=113, interactiveControls=5, errors=0"
+    },
+    {
+      "experimentId": "exp2-debug-baseline",
+      "title": "Debugging & Repair: Fix calc.js Discount Formula",
+      "policy": "BASELINE",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 15972,
+      "agentReportedSuccess": true,
+      "strategySelected": null,
+      "filesCreatedOrModified": [
+        "calc.js"
+      ],
+      "buildOrCompilePassed": false,
+      "testsPassed": false,
+      "browserVerified": false,
+      "consoleErrors": 0,
+      "verifiedOutcome": false,
+      "notes": "node test.js failed: node:assert:90\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: 20% off 100 must be 80\r\n    at "
+    },
+    {
+      "experimentId": "exp2-debug-learned",
+      "title": "Debugging & Repair: Fix calc.js Discount Formula",
+      "policy": "LEARNED",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 14967,
+      "agentReportedSuccess": true,
+      "strategySelected": "reproduce-root-cause-surgical-fix",
+      "filesCreatedOrModified": [
+        "calc.js"
+      ],
+      "buildOrCompilePassed": false,
+      "testsPassed": false,
+      "browserVerified": false,
+      "consoleErrors": 0,
+      "verifiedOutcome": false,
+      "notes": "node test.js failed: node:assert:90\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: 20% off 100 must be 80\r\n    at "
+    },
+    {
+      "experimentId": "exp3-win-baseline",
+      "title": "Native Windows Desktop Build: C# WinForms Executable",
+      "policy": "BASELINE",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 13881,
+      "agentReportedSuccess": true,
+      "strategySelected": null,
+      "filesCreatedOrModified": [
+        "bin",
+        "InventoryApp.csproj",
+        "Program.cs",
+        "Properties"
+      ],
+      "buildOrCompilePassed": false,
+      "testsPassed": false,
+      "browserVerified": false,
+      "consoleErrors": 0,
+      "verifiedOutcome": false,
+      "notes": "Program.cs failed csc.exe compile: Microsoft (R) Visual C# Compiler version 14.8.10001.0\r\r\nfor C# 5\r\nCopyright (C) Microsoft Corporation. All rights reserved.\r\r\n\r\r\nThis compil"
+    },
+    {
+      "experimentId": "exp3-win-learned",
+      "title": "Native Windows Desktop Build: C# WinForms Executable",
+      "policy": "LEARNED",
+      "modelId": "qwen2.5-coder:3b",
+      "durationMs": 14506,
+      "agentReportedSuccess": true,
+      "strategySelected": "native-wpf-dotnet",
+      "filesCreatedOrModified": [
+        "App.xaml",
+        "InventoryApp.csproj",
+        "MainWindow.xaml.cs",
+        "Program.cs"
+      ],
+      "buildOrCompilePassed": false,
+      "testsPassed": false,
+      "browserVerified": false,
+      "consoleErrors": 0,
+      "verifiedOutcome": false,
+      "notes": "MainWindow.xaml.cs failed csc.exe compile: Microsoft (R) Visual C# Compiler version 14.8.10001.0\r\r\nfor C# 5\r\nCopyright (C) Microsoft Corporation. All rights reserved.\r\r\n\r\r\nThis compil"
+    }
+  ]
+}

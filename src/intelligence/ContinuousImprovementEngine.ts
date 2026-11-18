@@ -98,6 +98,10 @@ export interface IntelligenceDashboardSnapshot {
   modelPerformance: ModelPerformanceStat[];
   toolPerformance: ReturnType<ExperienceMemory['getToolTelemetry']>;
   policyVersions: PolicyVersionRecord[];
+  rollbackHistory: ReturnType<ContextualBandit['getRollbackHistory']>;
+  validationRuns: ReturnType<ExperienceMemory['getValidationRuns']>;
+  failedLearningExperiments: ReturnType<ExperienceMemory['getValidationRuns']>;
+  strategyDistribution: Array<{ strategyId: string; pulls: number; sharePct: number; verifiedSuccessRate: number }>;
   lastOfflineEval: OfflineEvaluationReport | null;
 }
 
@@ -213,6 +217,26 @@ export class ContinuousImprovementEngine {
     };
 
     this.lastOfflineEval = report;
+    // Persist every benchmark run (approved AND rejected/failed) with explicit source labeling
+    try {
+      this.memory.recordValidationRun({
+        id: report.runId,
+        source: 'SIMULATED_BENCHMARK',
+        benchmarkVersion: 'offline-policy-gate-v1',
+        algorithm: this.bandit.getAlgorithm(),
+        approved: report.approved,
+        baselineCompletionPct: report.baselineCompletionRate,
+        learnedCompletionPct: report.candidateCompletionRate,
+        baselineReward: report.baselineMeanReward,
+        learnedReward: report.candidateMeanReward,
+        summary: {
+          sampleSize: report.sampleSize,
+          strategyShiftCount: report.strategyShiftCount,
+          rewardDelta: report.rewardDelta,
+          reason: report.reason,
+        },
+      });
+    } catch {}
     return report;
   }
 
@@ -554,6 +578,27 @@ export class AdaptiveIntelligenceCoordinator {
    * Never manufactures percentages or claims improvement without evidence.
    */
   public getDashboardSnapshot(projectId?: string): IntelligenceDashboardSnapshot {
+    const strategyStats = this.bandit.getAllArmStats();
+    const totalPulls = strategyStats.reduce((a, s) => a + s.pulls, 0);
+    const byStrat = new Map<string, { pulls: number; successes: number }>();
+    for (const s of strategyStats) {
+      const cur = byStrat.get(s.strategyId) || { pulls: 0, successes: 0 };
+      cur.pulls += s.pulls;
+      cur.successes += s.successes;
+      byStrat.set(s.strategyId, cur);
+    }
+    const strategyDistribution = Array.from(byStrat.entries())
+      .map(([strategyId, v]) => ({
+        strategyId,
+        pulls: v.pulls,
+        sharePct: totalPulls > 0 ? round4((v.pulls / totalPulls) * 100) : 0,
+        verifiedSuccessRate: v.pulls > 0 ? round4((v.successes / v.pulls) * 100) : 0,
+      }))
+      .sort((a, b) => b.pulls - a.pulls);
+
+    const validationRuns = this.memory.getValidationRuns(30);
+    const failedLearningExperiments = validationRuns.filter((r) => !r.approved || r.learnedCompletionPct < r.baselineCompletionPct);
+
     return {
       generatedAt: new Date().toISOString(),
       governance: this.governance.getPolicy(),
@@ -575,10 +620,14 @@ export class AdaptiveIntelligenceCoordinator {
           })),
       proceduralMemory: this.memory.getProcedures(projectId),
       evaluations: this.evaluator.getRecentEvaluations(projectId, 40),
-      strategyStats: this.bandit.getAllArmStats(),
+      strategyStats,
       modelPerformance: this.getModelPerformance(projectId),
       toolPerformance: this.memory.getToolTelemetry(),
       policyVersions: this.bandit.getPolicyVersions(),
+      rollbackHistory: this.bandit.getRollbackHistory(),
+      validationRuns,
+      failedLearningExperiments,
+      strategyDistribution,
       lastOfflineEval: this.improver.getLastOfflineEval(),
     };
   }

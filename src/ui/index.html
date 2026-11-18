@@ -706,7 +706,7 @@
 
           <div class="cc-grid-main">
             <!-- Left Column -->
-            <div class="flex-col gap-4">
+            <div class="flex-col gap-4" style="min-width:0;">
               <!-- 1. Reasoning Strategy -->
               <div class="card flex-col gap-3">
                 <div class="cc-section-title">1. Reasoning Strategy &amp; Objective Planner</div>
@@ -739,13 +739,27 @@
 
               <!-- 7. Evaluation Results -->
               <div class="card flex-col gap-2">
-                <div class="cc-section-title">7. Trusted Self-Evaluation Results</div>
+                <div class="cc-section-title">7. Trusted Self-Evaluation Results <span class="badge badge-cyan" style="margin-left:6px;">LIVE AGENT EXECUTION</span></div>
                 <div id="ic-evaluations-list" style="max-height:240px;overflow-y:auto;"></div>
+              </div>
+
+              <!-- 11. Mission 8 Benchmark History, 95% CI & Learning Curves -->
+              <div class="card flex-col gap-3">
+                <div class="flex items-center justify-between gap-2" style="flex-wrap:wrap;">
+                  <span class="cc-section-title">11. Validation Benchmarks, 95% CI &amp; Learning Curves</span>
+                  <button class="btn btn-xs btn-primary" id="btn-run-m8-bench" onclick="MaxIntelligenceCenter.runMission8Benchmark()">Run 120-Scenario Benchmark</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);">
+                  Simulated offline benchmarks (<span class="badge">SIMULATED BENCHMARK</span>) are strictly separated from live autonomous runs (<span class="badge badge-cyan">LIVE AGENT EXECUTION</span>).
+                </div>
+                <div id="ic-m8-comparison"></div>
+                <div id="ic-m8-learning-curves"></div>
+                <div id="ic-m8-benchmark-history" style="max-height:220px;overflow-y:auto;"></div>
               </div>
             </div>
 
             <!-- Right Column -->
-            <div class="flex-col gap-4">
+            <div class="flex-col gap-4" style="min-width:0;">
               <!-- 3. Learning History & User Feedback -->
               <div class="card flex-col gap-2">
                 <div class="cc-section-title">3. Learning History &amp; User Feedback</div>
@@ -772,6 +786,27 @@
                 </div>
                 <div id="ic-offline-eval-result"></div>
                 <div id="ic-policy-versions" style="max-height:210px;overflow-y:auto;"></div>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Policy Rollback Audit History</div>
+                  <div id="ic-rollback-history" style="max-height:130px;overflow-y:auto;"></div>
+                </div>
+              </div>
+
+              <!-- 12. Strategy Distribution, Memory Effectiveness & Failed Learning Experiments -->
+              <div class="card flex-col gap-3">
+                <div class="cc-section-title">12. Strategy Distribution &amp; Failed Experiments</div>
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Strategy Selection Distribution (Live Pulls)</div>
+                  <div id="ic-strategy-dist"></div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Memory Retrieval Effectiveness</div>
+                  <div id="ic-memory-effectiveness"></div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Failed / Rejected Learning Experiments</div>
+                  <div id="ic-failed-experiments" style="max-height:140px;overflow-y:auto;"></div>
+                </div>
               </div>
 
               <!-- 9. User Preferences -->

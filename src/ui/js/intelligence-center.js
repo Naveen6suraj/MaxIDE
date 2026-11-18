@@ -73,6 +73,8 @@ window.MaxIntelligenceCenter = (function () {
     renderExperienceMemory();
     renderEvaluationResults(data.evaluations || []);
     renderPolicyVersions(data.policyVersions || [], data.lastOfflineEval);
+    renderRollbackHistory(data.rollbackHistory || []);
+    renderValidationAnalytics(data);
     renderPreferencesAndGovernance(data);
   }
 
@@ -449,6 +451,181 @@ window.MaxIntelligenceCenter = (function () {
     `).join('');
   }
 
+  function renderRollbackHistory(rollbacks) {
+    const el = document.getElementById('ic-rollback-history');
+    if (!el) return;
+    if (rollbacks.length === 0) {
+      el.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No policy rollbacks recorded yet.</div>';
+      return;
+    }
+    el.innerHTML = rollbacks.slice(0, 10).map((rb) => `
+      <div style="padding:5px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;">
+        <div class="flex items-center justify-between gap-2">
+          <span class="mono">${escapeHtml(rb.fromVersion)} → <strong style="color:var(--accent-cyan);">${escapeHtml(rb.toVersion)}</strong></span>
+          <span style="color:var(--text-muted);">${formatRelativeTime(rb.createdAt)}</span>
+        </div>
+        <div style="color:var(--text-muted);margin-top:2px;">${escapeHtml(rb.reason || '')}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderValidationAnalytics(data) {
+    const runs = data.validationRuns || [];
+    const failed = data.failedLearningExperiments || [];
+    const dist = data.strategyDistribution || [];
+
+    // 1. Strategy Selection Distribution
+    const distEl = document.getElementById('ic-strategy-dist');
+    if (distEl) {
+      if (dist.length === 0) {
+        distEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No live strategy pulls recorded yet.</div>';
+      } else {
+        distEl.innerHTML = dist.slice(0, 8).map((d) => `
+          <div style="margin-bottom:6px;">
+            <div class="flex items-center justify-between mono" style="font-size:11px;margin-bottom:2px;">
+              <span class="truncate">${escapeHtml(d.strategyId)}</span>
+              <span>${d.pulls} pulls (${d.sharePct.toFixed(1)}%) • ${d.verifiedSuccessRate.toFixed(1)}% ok</span>
+            </div>
+            <div style="height:5px;background:var(--bg-secondary);border-radius:99px;overflow:hidden;">
+              <div style="height:100%;width:${Math.max(4, Math.min(100, d.sharePct))}%;background:var(--accent-primary);"></div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // 2. Latest Benchmark 4-System Comparison + Learning Curves + Memory Effectiveness
+    const latestFull = runs.find((r) => Array.isArray(r.summary?.systemComparison));
+    const compEl = document.getElementById('ic-m8-comparison');
+    const curveEl = document.getElementById('ic-m8-learning-curves');
+    const memEffEl = document.getElementById('ic-memory-effectiveness');
+
+    if (compEl) {
+      if (!latestFull) {
+        compEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">Click <strong>Run 120-Scenario Benchmark</strong> to evaluate Systems A, B, C, D with 95% confidence intervals.</div>';
+      } else {
+        const rows = (latestFull.summary.systemComparison || []).map((s) => `
+          <tr style="border-bottom:1px solid var(--border-subtle);">
+            <td style="padding:5px 6px;">${escapeHtml(s.label)}</td>
+            <td class="mono" style="padding:5px 6px;color:var(--accent-cyan);">${Number(s.metrics?.verifiedCompletionRate || 0).toFixed(1)}%</td>
+            <td class="mono" style="padding:5px 6px;color:var(--text-muted);">[${s.completionCI95?.ci95Low}%, ${s.completionCI95?.ci95High}%]</td>
+            <td class="mono" style="padding:5px 6px;">${Number(s.metrics?.meanReward || 0).toFixed(3)}</td>
+          </tr>
+        `).join('');
+        compEl.innerHTML = `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead>
+                <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-default);">
+                  <th style="padding:4px 6px;">System (${escapeHtml(latestFull.benchmarkVersion)})</th>
+                  <th style="padding:4px 6px;">Verified %</th>
+                  <th style="padding:4px 6px;">95% CI</th>
+                  <th style="padding:4px 6px;">Reward</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        `;
+      }
+    }
+
+    if (curveEl) {
+      if (!latestFull || !Array.isArray(latestFull.summary?.learningCurves)) {
+        curveEl.innerHTML = '';
+      } else {
+        curveEl.innerHTML = `
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Learning Curve (Holdout Verified Completion % by Experience Budget)</div>
+          ${latestFull.summary.learningCurves.map((pt) => `
+            <div style="margin-bottom:5px;">
+              <div class="flex items-center justify-between mono" style="font-size:10.5px;">
+                <span>Budget ${pt.budget} tasks</span>
+                <span>Sys C: ${pt.systemC_completion?.mean}% • Sys D: ${pt.systemD_completion?.mean}% (CI [${pt.systemD_completion?.ci95Low}%, ${pt.systemD_completion?.ci95High}%])</span>
+              </div>
+              <div style="height:5px;background:var(--bg-secondary);border-radius:99px;overflow:hidden;">
+                <div style="height:100%;width:${Math.max(4, Math.min(100, pt.systemD_completion?.mean || 0))}%;background:var(--accent-cyan);"></div>
+              </div>
+            </div>
+          `).join('')}
+        `;
+      }
+    }
+
+    if (memEffEl) {
+      if (latestFull && Array.isArray(latestFull.summary?.systemComparison)) {
+        const sysC = latestFull.summary.systemComparison.find((s) => s.system === 'C_BANDIT_NO_MEM');
+        const sysD = latestFull.summary.systemComparison.find((s) => s.system === 'D_BANDIT_WITH_MEM');
+        const delta = sysC && sysD ? (sysD.metrics.verifiedCompletionRate - sysC.metrics.verifiedCompletionRate).toFixed(1) : '0.0';
+        memEffEl.innerHTML = `
+          <div class="mono" style="font-size:11px;color:var(--text-secondary);">
+            Bandit w/o Memory (C): ${sysC?.metrics.verifiedCompletionRate ?? '—'}% • Bandit + Memory (D): ${sysD?.metrics.verifiedCompletionRate ?? '—'}% (Δ ${Number(delta) >= 0 ? '+' : ''}${delta}%)
+            <span class="badge" style="margin-left:6px;">SIMULATED BENCHMARK</span>
+          </div>
+        `;
+      } else {
+        const ms = data.memoryStats || {};
+        memEffEl.innerHTML = `<div class="mono" style="font-size:11px;color:var(--text-muted);">${ms.episodicCount || 0} live episodes stored (${ms.verifiedSuccessCount || 0} verified). Run 120-Scenario Benchmark to measure C vs D ablation delta.</div>`;
+      }
+    }
+
+    // 3. Benchmark History (explicit SIMULATED BENCHMARK vs LIVE AGENT EXECUTION badges)
+    const histEl = document.getElementById('ic-m8-benchmark-history');
+    if (histEl) {
+      if (runs.length === 0) {
+        histEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No persisted benchmark runs yet.</div>';
+      } else {
+        histEl.innerHTML = runs.slice(0, 10).map((r) => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1" style="flex-wrap:wrap;">
+                <span class="badge ${r.source === 'REAL_AGENT_EXECUTION' ? 'badge-cyan' : ''}">${r.source === 'REAL_AGENT_EXECUTION' ? 'LIVE AGENT EXECUTION' : 'SIMULATED BENCHMARK'}</span>
+                <span class="badge ${r.approved ? 'badge-success' : 'badge-error'}">${r.approved ? 'APPROVED' : 'REJECTED'}</span>
+                <span class="mono">${escapeHtml(r.benchmarkVersion)}</span>
+              </div>
+              <span style="color:var(--text-muted);">${formatRelativeTime(r.createdAt)}</span>
+            </div>
+            <div class="mono" style="color:var(--text-secondary);margin-top:3px;">
+              Baseline ${r.baselineCompletionPct.toFixed(1)}% → Learned ${r.learnedCompletionPct.toFixed(1)}%${r.ci95Low !== null ? ` (95% CI [${r.ci95Low}%, ${r.ci95High}%])` : ''} • Reward ${r.baselineReward.toFixed(3)} → ${r.learnedReward.toFixed(3)}
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // 4. Failed / Rejected Learning Experiments
+    const failEl = document.getElementById('ic-failed-experiments');
+    if (failEl) {
+      if (failed.length === 0) {
+        failEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No rejected or regressive learning experiments recorded.</div>';
+      } else {
+        failEl.innerHTML = failed.slice(0, 8).map((f) => `
+          <div style="padding:5px 0;border-bottom:1px solid var(--border-subtle);font-size:11px;">
+            <div class="flex items-center justify-between">
+              <span class="badge badge-error">REJECTED</span>
+              <span class="mono" style="color:var(--text-muted);">${escapeHtml(f.benchmarkVersion)} • ${formatRelativeTime(f.createdAt)}</span>
+            </div>
+            <div style="color:var(--text-secondary);margin-top:2px;">${escapeHtml(f.summary?.reason || `Baseline ${f.baselineCompletionPct}% vs Learned ${f.learnedCompletionPct}%`)}</div>
+          </div>
+        `).join('');
+      }
+    }
+  }
+
+  async function runMission8Benchmark() {
+    const btn = document.getElementById('btn-run-m8-bench');
+    if (btn) { btn.disabled = true; btn.textContent = 'Running 120 Scenarios...'; }
+    try {
+      toast('Running deterministic 120-scenario Mission 8 benchmark...', 'info', 2500);
+      const res = await api.post('/api/intelligence-center/run-mission8-benchmark', { exploitOnHoldout: true });
+      toast(res.approved ? `Benchmark passed & recorded (${res.reason})` : `Benchmark held: ${res.reason}`, res.approved ? 'success' : 'warning');
+      refreshDashboard();
+    } catch (err) {
+      toast(`Benchmark failed: ${err.message}`, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Run 120-Scenario Benchmark'; }
+    }
+  }
+
   // Sections 9 & 10: User Preferences & Privacy / Learning Controls
   function renderPreferencesAndGovernance(data) {
     const algoSel = document.getElementById('ic-bandit-algo-select');
@@ -592,6 +769,7 @@ window.MaxIntelligenceCenter = (function () {
     renderExperienceMemory,
     submitFeedback,
     runOfflineEval,
+    runMission8Benchmark,
     rollbackPolicy,
     setBanditAlgorithm,
     updateGovernance,

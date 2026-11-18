@@ -49,10 +49,13 @@ async function main() {
     '8. Policy Versions',
     '9. RL Policy & Reward Preferences',
     '10. Privacy, Security & Learning Controls',
+    '11. Validation Benchmarks, 95% CI & Learning Curves',
+    '12. Strategy Distribution & Failed Experiments',
   ];
   for (const h of requiredHeadings) {
     assert.ok(bodyText.includes(h.toUpperCase()), `Missing APEX Intelligence Center section: ${h}`);
   }
+  assert.ok(bodyText.includes('SIMULATED BENCHMARK') && bodyText.includes('LIVE AGENT EXECUTION'), 'Must explicitly distinguish SIMULATED BENCHMARK from LIVE AGENT EXECUTION');
 
   // Test interactive Reasoning Plan simulator for Native Windows Desktop task
   await page.fill('#ic-plan-preview-input', 'Build a native Windows desktop inventory management app (.exe)');
@@ -69,13 +72,24 @@ async function main() {
   const evalText = await page.textContent('#ic-offline-eval-result');
   assert.ok(evalText && evalText.includes('Offline Benchmark'), 'UI must display real offline evaluation banner');
 
+  // Verify Mission 8 120-Scenario Benchmark table & Learning Curves render (click if not yet populated)
+  const hasExistingTable = await page.locator('#ic-m8-comparison table').count();
+  if (hasExistingTable === 0) {
+    await page.click('#btn-run-m8-bench');
+    await page.waitForSelector('#ic-m8-comparison table', { timeout: 90000 });
+  }
+  const compTableText = await page.textContent('#ic-m8-comparison');
+  assert.ok(compTableText && compTableText.includes('Original Baseline') && compTableText.includes('Contextual Bandit'), '4-System comparison table must render');
+  const curveText = await page.textContent('#ic-m8-learning-curves');
+  assert.ok(curveText && curveText.includes('Budget 250'), 'Learning curve must render real budgets');
+
   // Check horizontal overflow
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 2, `Horizontal overflow detected: ${overflow}px`);
 
-  // Capture screenshot
-  const shotPath = path.join(shotDir, 'apex_intelligence_center_1600x900.png');
-  await page.screenshot({ path: shotPath, fullPage: false });
+  // Capture screenshot of upgraded Mission 8 Intelligence Center
+  const shotPath = path.join(shotDir, 'mission8_intelligence_center_1600x900.png');
+  await page.screenshot({ path: shotPath, fullPage: true });
 
   // Switch to Codebase Index subtab and verify it still works cleanly
   await page.click('#intel-subtab-codebase');
