@@ -7,7 +7,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import pptxgen from 'pptxgenjs';
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+const pptxgen: any = _require('pptxgenjs');
 import { ArtifactManager, Artifact } from '../../artifacts/ArtifactManager.js';
 
 export interface SlideDefinition {
