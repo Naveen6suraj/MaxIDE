@@ -26,6 +26,7 @@ import { PreviewManager } from './preview/PreviewManager.js';
 import { VerificationEngine } from '../agent/verification/VerificationEngine.js';
 import { MediaInspector } from '../agent/tools/MediaInspector.js';
 import { OllamaProvider } from '../ai/providers/ollama/OllamaProvider.js';
+import { ReasoningDecisionEngine } from '../intelligence/index.js';
 
 // Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
 function streamFileWithRange(req: any, res: any, absPath: string): void {
@@ -1544,6 +1545,175 @@ export function createApiRouter(
     try {
       const saved = agentEngine.projectMemory.save(req.body || {});
       res.json({ success: true, memory: saved });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- 17. APEX INTELLIGENCE CENTER (Mission 7 Adaptive Intelligence & RL) ---
+  router.get('/intelligence-center/dashboard', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const projectScope = req.query.scope === 'project'
+        ? ReasoningDecisionEngine.deriveProjectId(agentEngine.workspaceManager.getRootPath())
+        : undefined;
+      res.json(coord.getDashboardSnapshot(projectScope));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/plan-preview', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
+      const plan = coord.planTask({
+        prompt,
+        workspacePath: agentEngine.workspaceManager.getRootPath(),
+        modelId: req.body?.modelId || gateway.getActiveModelId() || 'qwen2.5-coder:3b',
+      });
+      res.json({ success: true, plan });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/feedback', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const { episodeId, rating, comment } = req.body || {};
+      if (!episodeId || ![1, 0, -1].includes(Number(rating))) {
+        return res.status(400).json({ error: 'Valid episodeId and rating (-1, 0, or 1) are required.' });
+      }
+      const projectId = ReasoningDecisionEngine.deriveProjectId(agentEngine.workspaceManager.getRootPath());
+      const result = coord.recordUserFeedback(String(episodeId), projectId, Number(rating) as -1 | 0 | 1, String(comment || ''));
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/offline-eval', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const scenarios = Array.isArray(req.body?.scenarios) && req.body.scenarios.length > 0
+        ? req.body.scenarios
+        : coord.improver.buildDefaultOfflineScenarios();
+      const report = coord.improver.runOfflineEvaluation(scenarios, {
+        promoteIfApproved: req.body?.promoteIfApproved !== false,
+        seed: typeof req.body?.seed === 'number' ? req.body.seed : 1337,
+        notes: req.body?.notes,
+      });
+      res.json({ success: true, report });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/policy/rollback', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const { versionId } = req.body || {};
+      if (!versionId) return res.status(400).json({ error: 'versionId is required.' });
+      const result = coord.bandit.rollbackPolicy(String(versionId));
+      if (!result.success) return res.status(404).json(result);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/policy/algorithm', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const algo = req.body?.algorithm;
+      if (algo !== 'UCB1' && algo !== 'THOMPSON_SAMPLING') {
+        return res.status(400).json({ error: 'algorithm must be UCB1 or THOMPSON_SAMPLING.' });
+      }
+      coord.setBanditAlgorithm(algo);
+      res.json({ success: true, algorithm: algo });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/governance', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      if (typeof req.body?.learningEnabled === 'boolean') {
+        coord.setLearningEnabled(req.body.learningEnabled);
+      }
+      if (typeof req.body?.allowCrossProjectProceduralTransfer === 'boolean') {
+        coord.setCrossProjectTransfer(req.body.allowCrossProjectProceduralTransfer);
+      }
+      res.json({ success: true, governance: coord.governance.getPolicy() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/intelligence-center/memory/semantic/:id', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      coord.memory.editSemanticRecord(req.params.id, String(req.body?.value || ''));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/intelligence-center/memory/:table/:id', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const table = req.params.table as 'episodic_memory' | 'semantic_memory' | 'procedural_memory';
+      const ok = coord.memory.deleteRecord(table, req.params.id);
+      if (!ok) return res.status(400).json({ error: 'Invalid memory table.' });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/intelligence-center/memory/clear', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      const projectId = req.body?.scope === 'project'
+        ? ReasoningDecisionEngine.deriveProjectId(agentEngine.workspaceManager.getRootPath())
+        : undefined;
+      coord.memory.clearMemory(projectId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/intelligence-center/memory/export', async (req, res) => {
+    try {
+      const coord = agentEngine.adaptiveIntelligence;
+      if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
+      await coord.ready();
+      res.json(coord.memory.exportBackup());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

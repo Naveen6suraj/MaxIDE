@@ -667,71 +667,210 @@
     </section>
 
     <!-- ====================================================================
-         VIEW 5: PROJECT INTELLIGENCE & PERSISTENT PROJECT MEMORY
+         VIEW 5: APEX INTELLIGENCE CENTER + PROJECT CODEBASE INTELLIGENCE
          ==================================================================== -->
-    <section id="view-intelligence" class="mission-view hidden" aria-label="Project Intelligence">
+    <section id="view-intelligence" class="mission-view hidden" aria-label="APEX Intelligence Center">
       <div class="cc-container">
         <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap;">
           <div>
-            <h2 style="font-size:18px;font-weight:700;">Project Intelligence &amp; Memory</h2>
-            <p style="font-size:12px;color:var(--text-secondary);">Repository indexing, stack detection, dependency graph, symbol lookup, and persistent local project memory.</p>
+            <h2 style="font-size:18px;font-weight:700;">APEX Intelligence Center</h2>
+            <p style="font-size:12px;color:var(--text-secondary);">Adaptive reasoning, SQLite experience memory, contextual bandit RL, trusted self-evaluation, and policy governance.</p>
           </div>
-          <div class="flex items-center gap-2">
-            <button class="btn btn-sm btn-primary" onclick="MaxStudioPanels.reindexProjectIntelligence()">Re-Index Repository</button>
+          <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+            <div class="view-switcher" role="tablist" aria-label="Intelligence Subviews">
+              <button id="intel-subtab-apex" class="view-tab active" onclick="MaxIntelligenceCenter.switchSubTab('apex-center')">APEX Intelligence Center</button>
+              <button id="intel-subtab-codebase" class="view-tab" onclick="MaxIntelligenceCenter.switchSubTab('codebase-index')">Codebase Index &amp; Memory</button>
+            </div>
             <button class="btn btn-sm" onclick="MaxViews.switchMainView('workspace')">Open Workspace</button>
           </div>
         </div>
 
-        <div id="pi-stats-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;"></div>
-
-        <div class="cc-grid-main">
-          <div class="flex-col gap-4">
-            <div class="card">
-              <div class="cc-section-title" style="margin-bottom:10px;">Language Breakdown</div>
-              <div id="pi-languages-list"></div>
+        <!-- SUB-PANE A: APEX INTELLIGENCE CENTER (10 REAL-METRIC SECTIONS) -->
+        <div id="intel-pane-apex" class="flex-col gap-4">
+          <div class="flex items-center justify-between gap-2" style="flex-wrap:wrap;">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-accent">LOCAL SQLITE 3</span>
+              <span class="badge badge-cyan">IMMUTABLE SAFETY LOCKS</span>
+              <select class="select" style="width:auto;height:28px;font-size:11.5px;" onchange="MaxIntelligenceCenter.setScope(this.value)" aria-label="Memory Scope Filter">
+                <option value="all">All Projects</option>
+                <option value="project">Active Workspace Only</option>
+              </select>
             </div>
-            <div class="card">
-              <div class="cc-section-title" style="margin-bottom:10px;">Top Indexed Symbols (Click to Jump)</div>
-              <div id="pi-symbols-list" style="max-height:260px;overflow-y:auto;"></div>
-            </div>
-            <div class="card">
-              <div class="cc-section-title" style="margin-bottom:10px;">Cross-File Dependency Hubs</div>
-              <div id="pi-hubs-list"></div>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-xs btn-primary" onclick="MaxIntelligenceCenter.runOfflineEval()">Run Offline Eval &amp; Promote</button>
+              <button class="btn btn-xs" onclick="MaxIntelligenceCenter.refreshDashboard()">Refresh Metrics</button>
             </div>
           </div>
 
-          <div class="flex-col gap-4">
-            <div class="card flex-col gap-3">
-              <div class="flex items-center justify-between">
-                <span class="cc-section-title">Persistent Project Memory (Secret-Sanitized)</span>
-                <button class="btn btn-xs btn-primary" onclick="MaxStudioPanels.saveProjectMemoryForm()">Save Memory</button>
+          <div id="ic-kpi-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;"></div>
+
+          <div class="cc-grid-main">
+            <!-- Left Column -->
+            <div class="flex-col gap-4">
+              <!-- 1. Reasoning Strategy -->
+              <div class="card flex-col gap-3">
+                <div class="cc-section-title">1. Reasoning Strategy &amp; Objective Planner</div>
+                <div class="flex items-center gap-2">
+                  <input id="ic-plan-preview-input" class="input flex-1" placeholder="Test objective (e.g. Build a native Windows desktop inventory app, or Improve this app until quality)..." onkeydown="if(event.key==='Enter') MaxIntelligenceCenter.runPlanPreview()" />
+                  <button class="btn btn-sm btn-primary" onclick="MaxIntelligenceCenter.runPlanPreview()">Simulate Plan</button>
+                </div>
+                <div id="ic-reasoning-body"></div>
               </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Architecture Overview</label>
-                <textarea id="pm-architecture" class="textarea" rows="3" placeholder="Document architecture conventions, services, or data models..."></textarea>
+
+              <!-- 2. Experience Memory -->
+              <div class="card flex-col gap-3">
+                <div class="flex items-center justify-between gap-2" style="flex-wrap:wrap;">
+                  <span class="cc-section-title">2. Experience Memory (SQLite Persistent)</span>
+                  <div class="view-switcher">
+                    <button id="ic-memtab-episodic" class="view-tab active" onclick="MaxIntelligenceCenter.setMemoryTab('episodic')">Episodic</button>
+                    <button id="ic-memtab-semantic" class="view-tab" onclick="MaxIntelligenceCenter.setMemoryTab('semantic')">Semantic</button>
+                    <button id="ic-memtab-procedural" class="view-tab" onclick="MaxIntelligenceCenter.setMemoryTab('procedural')">Procedural</button>
+                  </div>
+                </div>
+                <input id="ic-memory-search" class="input" placeholder="Search stored experiences, strategies, or project facts..." oninput="MaxIntelligenceCenter.renderExperienceMemory()" />
+                <div id="ic-memory-list" style="max-height:260px;overflow-y:auto;"></div>
               </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Project Instructions for APEX Agent</label>
-                <textarea id="pm-instructions" class="textarea" rows="2" placeholder="e.g. Always run npm test after editing backend routes..."></textarea>
+
+              <!-- 6. Strategy Performance -->
+              <div class="card flex-col gap-2">
+                <div class="cc-section-title">6. Strategy Performance (Contextual Bandit Arms)</div>
+                <div id="ic-strategy-perf" style="max-height:240px;overflow-y:auto;"></div>
               </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Engineering Decisions (One per line)</label>
-                <textarea id="pm-decisions" class="textarea" rows="2" placeholder="Key architectural decisions..."></textarea>
-              </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Known Issues (One per line)</label>
-                <textarea id="pm-issues" class="textarea" rows="2" placeholder="Open bugs or constraints..."></textarea>
+
+              <!-- 7. Evaluation Results -->
+              <div class="card flex-col gap-2">
+                <div class="cc-section-title">7. Trusted Self-Evaluation Results</div>
+                <div id="ic-evaluations-list" style="max-height:240px;overflow-y:auto;"></div>
               </div>
             </div>
 
-            <div class="card">
-              <div class="cc-section-title" style="margin-bottom:8px;">Project Dependencies</div>
-              <div id="pi-dependencies-list" style="max-height:200px;overflow-y:auto;"></div>
+            <!-- Right Column -->
+            <div class="flex-col gap-4">
+              <!-- 3. Learning History & User Feedback -->
+              <div class="card flex-col gap-2">
+                <div class="cc-section-title">3. Learning History &amp; User Feedback</div>
+                <div id="ic-learning-history" style="max-height:240px;overflow-y:auto;"></div>
+              </div>
+
+              <!-- 4. Model Performance -->
+              <div class="card flex-col gap-2">
+                <div class="cc-section-title">4. Model Performance (Verified Outcomes)</div>
+                <div id="ic-model-perf"></div>
+              </div>
+
+              <!-- 5. Tool Performance -->
+              <div class="card flex-col gap-2">
+                <div class="cc-section-title">5. Tool Performance Telemetry</div>
+                <div id="ic-tool-perf" style="max-height:200px;overflow-y:auto;"></div>
+              </div>
+
+              <!-- 8. Policy Versions & Rollback -->
+              <div class="card flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="cc-section-title">8. Policy Versions &amp; Rollback</span>
+                  <button class="btn btn-xs btn-primary" onclick="MaxIntelligenceCenter.runOfflineEval()">Evaluate &amp; Promote</button>
+                </div>
+                <div id="ic-offline-eval-result"></div>
+                <div id="ic-policy-versions" style="max-height:210px;overflow-y:auto;"></div>
+              </div>
+
+              <!-- 9. User Preferences -->
+              <div class="card flex-col gap-3">
+                <div class="cc-section-title">9. RL Policy &amp; Reward Preferences</div>
+                <div class="flex items-center justify-between gap-2">
+                  <label for="ic-bandit-algo-select" style="font-size:12px;color:var(--text-secondary);">Contextual Bandit Algorithm</label>
+                  <select id="ic-bandit-algo-select" class="select" style="width:190px;" onchange="MaxIntelligenceCenter.setBanditAlgorithm(this.value)">
+                    <option value="UCB1">UCB1 (Upper Confidence Bound)</option>
+                    <option value="THOMPSON_SAMPLING">Thompson Sampling (Beta)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Trusted Reward Function Weights (v1.0.0)</div>
+                  <div id="ic-reward-weights-view"></div>
+                </div>
+              </div>
+
+              <!-- 10. Privacy & Learning Controls -->
+              <div class="card flex-col gap-3">
+                <div class="cc-section-title">10. Privacy, Security &amp; Learning Controls</div>
+                <label class="flex items-center justify-between" style="font-size:12px;cursor:pointer;">
+                  <span>Enable Adaptive Experience Learning</span>
+                  <input id="ic-toggle-learning" type="checkbox" checked onchange="MaxIntelligenceCenter.updateGovernance()" />
+                </label>
+                <label class="flex items-center justify-between" style="font-size:12px;cursor:pointer;">
+                  <span>Allow Cross-Project Procedural Transfer</span>
+                  <input id="ic-toggle-cross-project" type="checkbox" checked onchange="MaxIntelligenceCenter.updateGovernance()" />
+                </label>
+                <div style="padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:11px;color:var(--text-muted);line-height:1.5;">
+                  <div>🔒 Core System Prompt Modification: <strong style="color:var(--color-success);">LOCKED (Immutable)</strong></div>
+                  <div>🔒 Security Boundary Modification: <strong style="color:var(--color-success);">LOCKED (Immutable)</strong></div>
+                  <div>🔒 Secret Scrubbing (API Keys / Passwords / Tokens): <strong style="color:var(--color-success);">ALWAYS ON</strong></div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="btn btn-xs" onclick="MaxIntelligenceCenter.exportMemoryBackup()">Export JSON Backup</button>
+                  <button class="btn btn-xs btn-danger" onclick="MaxIntelligenceCenter.clearAllMemory()">Clear Memory</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUB-PANE B: PROJECT CODEBASE INDEX & MEMORY -->
+        <div id="intel-pane-codebase" class="flex-col gap-4 hidden">
+          <div class="flex items-center justify-end gap-2">
+            <button class="btn btn-sm btn-primary" onclick="MaxStudioPanels.reindexProjectIntelligence()">Re-Index Repository</button>
+          </div>
+          <div id="pi-stats-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;"></div>
+
+          <div class="cc-grid-main">
+            <div class="flex-col gap-4">
+              <div class="card">
+                <div class="cc-section-title" style="margin-bottom:10px;">Language Breakdown</div>
+                <div id="pi-languages-list"></div>
+              </div>
+              <div class="card">
+                <div class="cc-section-title" style="margin-bottom:10px;">Top Indexed Symbols (Click to Jump)</div>
+                <div id="pi-symbols-list" style="max-height:260px;overflow-y:auto;"></div>
+              </div>
+              <div class="card">
+                <div class="cc-section-title" style="margin-bottom:10px;">Cross-File Dependency Hubs</div>
+                <div id="pi-hubs-list"></div>
+              </div>
             </div>
 
-            <div class="card">
-              <div class="cc-section-title" style="margin-bottom:8px;">Recorded Task History</div>
-              <div id="pm-task-history"></div>
+            <div class="flex-col gap-4">
+              <div class="card flex-col gap-3">
+                <div class="flex items-center justify-between">
+                  <span class="cc-section-title">Persistent Project Memory (Secret-Sanitized)</span>
+                  <button class="btn btn-xs btn-primary" onclick="MaxStudioPanels.saveProjectMemoryForm()">Save Memory</button>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Architecture Overview</label>
+                  <textarea id="pm-architecture" class="textarea" rows="3" placeholder="Document architecture conventions, services, or data models..."></textarea>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Project Instructions for APEX Agent</label>
+                  <textarea id="pm-instructions" class="textarea" rows="2" placeholder="e.g. Always run npm test after editing backend routes..."></textarea>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Engineering Decisions (One per line)</label>
+                  <textarea id="pm-decisions" class="textarea" rows="2" placeholder="Key architectural decisions..."></textarea>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Known Issues (One per line)</label>
+                  <textarea id="pm-issues" class="textarea" rows="2" placeholder="Open bugs or constraints..."></textarea>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="cc-section-title" style="margin-bottom:8px;">Project Dependencies</div>
+                <div id="pi-dependencies-list" style="max-height:200px;overflow-y:auto;"></div>
+              </div>
+
+              <div class="card">
+                <div class="cc-section-title" style="margin-bottom:8px;">Recorded Task History</div>
+                <div id="pm-task-history"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -935,6 +1074,7 @@
   <script src="/js/api.js"></script>
   <script src="/js/views.js"></script>
   <script src="/js/studio-panels.js"></script>
+  <script src="/js/intelligence-center.js"></script>
 
   <!-- Core Editor, Binary Media Shield, SSE Agent Stream & Keyboard Shortcuts -->
   <script>
@@ -1641,8 +1781,20 @@
                     actionBtns.push(`<button class="btn btn-xs" onclick="dispatchAgentTask('${MaxUI.escapeHtml(a.prompt || a.label).replace(/'/g, "\\'")}')">${MaxUI.escapeHtml(a.label)}</button>`);
                   });
                 }
+                const epId = outcome.episodeId || outcome.agentResult?.episodeId;
+                const stratId = outcome.strategyId || outcome.agentResult?.strategyId;
+                const evalObj = outcome.evaluation || outcome.agentResult?.evaluation;
+                if (epId) {
+                  const safeEp = MaxUI.escapeHtml(epId).replace(/'/g, "\\'");
+                  const rewardTxt = evalObj && typeof evalObj.reward === 'number'
+                    ? ` (${evalObj.reward >= 0 ? '+' : ''}${evalObj.reward.toFixed(2)})`
+                    : '';
+                  actionBtns.push(`<span class="badge mono" title="Selected Strategy & Trusted Reward">${MaxUI.escapeHtml(stratId || 'strategy')}${rewardTxt}</span>`);
+                  actionBtns.push(`<button class="btn btn-xs btn-ghost" title="Helpful outcome (+RL reward)" onclick="MaxIntelligenceCenter.submitFeedback('${safeEp}', 1)">👍 Helpful</button>`);
+                  actionBtns.push(`<button class="btn btn-xs btn-ghost" title="Needs improvement (-RL reward)" onclick="MaxIntelligenceCenter.submitFeedback('${safeEp}', -1)">👎 Needs Fix</button>`);
+                }
                 if (actionBtns.length > 0) {
-                  actionsHtml = `<div class="flex gap-2" style="flex-wrap:wrap;margin-top:8px;">${actionBtns.join('')}</div>`;
+                  actionsHtml = `<div class="flex gap-2" style="flex-wrap:wrap;margin-top:8px;align-items:center;">${actionBtns.join('')}</div>`;
                 }
                 appendChatCard(ok ? 'agent' : 'error', formatAgentMarkdown(bodyText) + actionsHtml);
                 if (!ok) {

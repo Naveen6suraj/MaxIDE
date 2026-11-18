@@ -22,6 +22,7 @@ import { PermissionManager } from '../agent/safety/PermissionManager.js';
 import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
 import { AIProviderConfig } from '../ai/core/AIProvider.js';
 import { PreviewManager } from './preview/PreviewManager.js';
+import { AdaptiveIntelligenceCoordinator } from '../intelligence/index.js';
 
 dotenv.config();
 
@@ -128,6 +129,9 @@ const gateway = new AIGateway(providerRegistry, modelRegistry, 'hybrid');
 const activeProject = projectManager.getActiveProject();
 const effectiveWorkspace = activeProject?.activeWorkspace || workspaceDir;
 const agentEngine = new AgentEngine(gateway, effectiveWorkspace);
+const adaptiveIntelligence = new AdaptiveIntelligenceCoordinator(path.join(pathManager.userDataDir, 'apex_intelligence.sqlite'));
+adaptiveIntelligence.ready().catch((err) => console.warn('[MaxIDE] Adaptive Intelligence DB init error:', err?.message));
+agentEngine.adaptiveIntelligence = adaptiveIntelligence;
 const recoveryManager = new RecoveryManager(conversationStore, projectManager, agentEngine.checkpointManager, agentEngine);
 agentEngine.setRecoveryManager(recoveryManager);
 agentEngine.setConversationStore(conversationStore);
@@ -488,4 +492,4 @@ function cleanupAndExit() {
 process.on('SIGINT', cleanupAndExit);
 process.on('SIGTERM', cleanupAndExit);
 
-export { app, providerRegistry, modelRegistry, gateway, agentEngine };
+export { app, providerRegistry, modelRegistry, gateway, agentEngine, adaptiveIntelligence };

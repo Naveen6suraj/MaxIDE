@@ -49,6 +49,7 @@ import { VerificationEngine } from './verification/VerificationEngine.js';
 import { ClosedLoopTestEngine } from './verification/ClosedLoopTestEngine.js';
 
 import { ProjectMemoryManager } from './memory/ProjectMemoryManager.js';
+import { AdaptiveIntelligenceCoordinator, DecisionPlan, EvaluationRecord } from '../intelligence/index.js';
 
 export type TaskLifecycleState = 'IDLE' | 'OBSERVING' | 'PLANNING' | 'WAITING_FOR_MODEL' | 'INSPECTING' | 'EXECUTING' | 'TESTING' | 'DIAGNOSING' | 'REPAIRING' | 'VERIFYING' | 'COMPLETED' | 'PARTIALLY_COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED';
 
@@ -126,6 +127,10 @@ export interface AgentTaskResult {
   openFile?: string;
   openPreview?: string;
   autoModel?: AutoModelMetadata;
+  episodeId?: string;
+  strategyId?: string;
+  decisionRationale?: string;
+  evaluation?: EvaluationRecord;
 }
 
 export class AgentEngine {
@@ -147,6 +152,7 @@ export class AgentEngine {
   public readonly jobManager: BackgroundJobManager;
   public readonly testEngine: ClosedLoopTestEngine;
   public readonly projectMemory: ProjectMemoryManager;
+  public adaptiveIntelligence?: AdaptiveIntelligenceCoordinator;
   private currentLifecycleState: TaskLifecycleState = 'IDLE';
   private sessionHistory: Map<string, ChatMessage[]> = new Map();
   private currentEvidence: TaskExecutionEvidence = {
@@ -500,6 +506,23 @@ export class AgentEngine {
     const codebaseContext = this.intelligence.buildContext(taskPrompt, 2500);
     const projectMemContext = this.projectMemory.buildPromptContext();
 
+    // 3b. Adaptive Intelligence Engine: Objective Reasoning + Strategy Selection + Experience Retrieval
+    const taskStartTime = Date.now();
+    let totalToolsExecuted = 0;
+    let totalToolFailures = 0;
+    let decisionPlan: DecisionPlan | undefined;
+    if (this.adaptiveIntelligence) {
+      try {
+        await this.adaptiveIntelligence.ready();
+        decisionPlan = this.adaptiveIntelligence.planTask({
+          prompt: taskPrompt,
+          workspacePath: this.workspaceManager.getRootPath(),
+          modelId: modelId || this.gateway.getActiveModelId() || 'unknown',
+        });
+        this.logActivity('thought', `[Adaptive Reasoning] ${decisionPlan.decisionRationale}`);
+      } catch {}
+    }
+
     const systemPrompt =
       'You are MaxIDE Agent, an elite AI software engineering agent operating directly on the user\'s real computer inside MaxIDE.\n' +
       `Workspace Root: ${this.workspaceManager.getRootPath()}\n` +
@@ -522,6 +545,7 @@ export class AgentEngine {
       'Relevant Codebase Context:\n' +
       codebaseContext +
       (projectMemContext ? '\n\nPersistent Project Memory:\n' + projectMemContext : '') +
+      (decisionPlan ? '\n\n' + decisionPlan.promptGuidance : '') +
       '\n\nSolve the user request thoroughly using your registered tools. Methodically inspect, modify, run verification, diagnose any errors, and confirm completion.';
 
     const activeSessKey = options.sessionId || 'default';
@@ -752,9 +776,14 @@ export class AgentEngine {
         }
 
         // Execute via ToolRegistry
+        const toolStartMs = Date.now();
         const execResult: ToolExecutionResult = await this.toolRegistry.execute(tc.name, tc.arguments, {
           model: this.gateway.modelRegistry.getModel(modelId || ''),
         });
+        totalToolsExecuted++;
+        const toolOk = Boolean(execResult.success && !(execResult.result && execResult.result.exitCode && execResult.result.exitCode !== 0));
+        if (!toolOk) totalToolFailures++;
+        this.adaptiveIntelligence?.recordToolTelemetry(tc.name, toolOk, Date.now() - toolStartMs);
 
         toolResults.push({ name: tc.name, result: execResult.result || execResult.error });
 
@@ -1002,6 +1031,44 @@ export class AgentEngine {
 
     this.logActivity('thought', taskActuallySucceeded ? 'Completed' : 'Task Failed');
 
+    // Step 2–5 Adaptive Learning Loop: Evaluate trusted evidence & update Experience Memory + Contextual Bandit
+    let learnEpisodeId: string | undefined;
+    let learnEvaluation: EvaluationRecord | undefined;
+    if (this.adaptiveIntelligence && decisionPlan) {
+      try {
+        const buildCmds = commandsRun.filter((c) => /\b(build|tsc|csc|compile|package|vite)\b/i.test(c));
+        const learnRes = this.adaptiveIntelligence.completeAndLearn({
+          plan: decisionPlan,
+          modelId: modelId || this.gateway.getActiveModelId() || 'unknown',
+          requirementCoverageEstimate: taskActuallySucceeded ? (physicalFilesExist ? 0.92 : 0.78) : (physicalFilesExist ? 0.45 : 0.0),
+          summary: (finalAnswer || '').slice(0, 320),
+          evidence: {
+            toolsExecutedCount: totalToolsExecuted,
+            filesInspected: Array.from(new Set(this.currentEvidence.inspectedFiles)),
+            filesModified: filesTouched,
+            commandsExecuted: commandsRun,
+            buildAttempted: buildCmds.length > 0,
+            buildPassed: buildCmds.length > 0 && taskActuallySucceeded,
+            testsAttempted: this.currentEvidence.testsRun > 0,
+            testsRun: this.currentEvidence.testsRun,
+            testsPassed: this.currentEvidence.testsPassed,
+            browserOrAppVerified: Boolean(detectedOpenPreview && taskActuallySucceeded),
+            securityViolationDetected: false,
+            destructiveUnauthorizedAttempt: false,
+            falseCompletionClaimed: false,
+            repeatedFailureCount: totalToolFailures,
+            durationMs: Date.now() - taskStartTime,
+          },
+        });
+        learnEpisodeId = learnRes.episodeId;
+        learnEvaluation = learnRes.evaluation;
+        this.logActivity(
+          'thought',
+          `[Self-Evaluation] Status=${learnRes.evaluation.status}, Reward=${learnRes.evaluation.reward >= 0 ? '+' : ''}${learnRes.evaluation.reward}, Strategy=${learnRes.strategyId}`
+        );
+      } catch {}
+    }
+
     return {
       success: taskActuallySucceeded,
       task: taskPrompt,
@@ -1013,6 +1080,10 @@ export class AgentEngine {
       openFile: detectedOpenFile,
       openPreview: detectedOpenPreview,
       autoModel: autoModelMeta,
+      episodeId: learnEpisodeId,
+      strategyId: decisionPlan?.selectedStrategy.id,
+      decisionRationale: decisionPlan?.decisionRationale,
+      evaluation: learnEvaluation,
       error: taskActuallySucceeded ? undefined : 'No valid workspace files were created or modified.',
     };
   }
@@ -1238,6 +1309,10 @@ export class AgentEngine {
     autoModel?: AutoModelMetadata;
     clarification?: ClarificationResult;
     questions?: ClarificationResult['questions'];
+    episodeId?: string;
+    strategyId?: string;
+    decisionRationale?: string;
+    evaluation?: EvaluationRecord;
   }> {
     const trimmed = userPrompt.trim();
     const lower = trimmed.toLowerCase();
@@ -1886,6 +1961,10 @@ export class AgentEngine {
       openFile: agentResult.openFile,
       openPreview: agentResult.openPreview,
       autoModel: autoModelMeta || agentResult.autoModel,
+      episodeId: agentResult.episodeId,
+      strategyId: agentResult.strategyId,
+      decisionRationale: agentResult.decisionRationale,
+      evaluation: agentResult.evaluation,
     };
   }
 

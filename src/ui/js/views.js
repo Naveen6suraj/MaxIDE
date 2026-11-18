@@ -89,8 +89,9 @@ window.MaxViews = (function () {
       refreshMissionControl();
     } else if (view === 'preview') {
       initPreviewStudio();
-    } else if (view === 'intelligence' && window.MaxStudioPanels) {
-      window.MaxStudioPanels.refreshProjectIntelligence();
+    } else if (view === 'intelligence') {
+      if (window.MaxIntelligenceCenter) window.MaxIntelligenceCenter.refreshDashboard();
+      if (window.MaxStudioPanels) window.MaxStudioPanels.refreshProjectIntelligence();
     } else if (view === 'ai-control' && window.MaxStudioPanels) {
       window.MaxStudioPanels.refreshAIControlCenter();
     }
