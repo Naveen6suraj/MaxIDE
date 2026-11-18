@@ -1037,8 +1037,29 @@ export class AgentEngine {
       ...steps.flatMap(s => (s.toolCalls || []).filter(tc => ['run_command', 'execute_command', 'executeCommand'].includes(tc.name)).map(tc => (tc.arguments as any)?.command).filter(Boolean)),
     ]));
 
-    // Structured Intent-Based Execution Verification (replaces brittle Mission 7 executionKeywords array!)
     let physicalFilesExist = false;
+
+    // Fallback Code Extraction: If model outputted code in thought or text without native tool calls
+    if (isExecutionTask) {
+      const fullStepText = steps.map(s => s.thought || '').join('\n');
+      const textCalls = this.extractToolCallsFromText(fullStepText, 1, taskPrompt);
+      for (const tc of textCalls) {
+        const args = tc.arguments as any;
+        if (tc.name === 'create_file' && args?.path && args?.content) {
+          try {
+            const fp = path.isAbsolute(args.path) ? args.path : path.join(rootPath, args.path);
+            fs.mkdirSync(path.dirname(fp), { recursive: true });
+            fs.writeFileSync(fp, args.content, 'utf8');
+            filesTouched.push(args.path);
+            this.currentEvidence.modifiedFiles.push(args.path);
+            physicalFilesExist = true;
+          } catch {}
+        }
+      }
+    }
+
+    // Structured Intent-Based Execution Verification (replaces brittle Mission 7 executionKeywords array!)
+    let physicalFilesExistConfirmed = false;
     for (const f of filesTouched) {
       const fullPath = path.isAbsolute(f) ? f : path.join(rootPath, f);
       if (fs.existsSync(fullPath)) {
@@ -1047,12 +1068,13 @@ export class AgentEngine {
           if (stat.size > 0) {
             const content = fs.readFileSync(fullPath, 'utf8');
             if (!ContentSanitizer.isToolEnvelope(content)) {
-              physicalFilesExist = true;
+              physicalFilesExistConfirmed = true;
             }
           }
         } catch {}
       }
     }
+    physicalFilesExist = physicalFilesExist || physicalFilesExistConfirmed;
 
     // Closed-Loop Final Verification: ALWAYS run discovered project tests on execution/debug/fix tasks
     const disc = this.testEngine.discoverTests();

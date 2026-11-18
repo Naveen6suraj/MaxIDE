@@ -291,8 +291,8 @@ export class ClarificationGate {
       return true;
     }
 
-    // Specific design or domain targets (landing page, dashboard, portfolio, ecommerce, showcase)
-    if (/\b(landing\s+page|dashboard|portfolio|ecommerce|e-commerce|store|showcase|presentation|report|resume|publication)\b/i.test(lower)) {
+    // Specific design or domain targets (cafe, restaurant, menu, order, store, dashboard, portfolio, etc.)
+    if (/\b(cafe|restaurant|menu|order|food|coffee|bakery|landing\s+page|dashboard|portfolio|ecommerce|e-commerce|store|shop|blog|inventory|attendance|tracker|calculator|showcase|presentation|report|resume|publication)\b/i.test(lower)) {
       return true;
     }
 
@@ -301,6 +301,11 @@ export class ClarificationGate {
 
   private static isAmbiguous(lower: string): boolean {
     const compact = lower.replace(/[.,!?;]/g, '').trim();
+
+    // If the prompt contains concrete domain features or topics, it is NOT ambiguous!
+    if (/\b(cafe|restaurant|menu|order|food|coffee|bakery|inventory|attendance|tracker|calculator|ecommerce|store|shop|todo|weather|notes|chat|messenger)\b/i.test(lower)) {
+      return false;
+    }
 
     // Any prompt asking to build or play a game without an explicit filename
     if (/\b(game|play|arcade|canvas)\b/i.test(lower)) {
