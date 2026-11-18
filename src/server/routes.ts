@@ -7,6 +7,7 @@ import { RecoveryManager } from '../agent/recovery/RecoveryManager.js';
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { ProviderRegistry } from '../ai/registry/ProviderRegistry.js';
 import { ModelRegistry } from '../ai/registry/ModelRegistry.js';
 import { AIGateway } from '../ai/gateway/AIGateway.js';
@@ -99,6 +100,21 @@ export function createApiRouter(
         activeProject: activeProject?.name || 'None',
         providersCount: providerRegistry.getAllProviders().length,
         modelsCount: modelRegistry.getAllModels().length,
+        activeModel: gateway.getActiveModelId(),
+        aiMode: gateway.getAIMode(),
+        autonomyMode: agentEngine.getAutonomyMode(),
+        agentLifecycle: agentEngine.getLifecycleState(),
+        executionEvidence: agentEngine.getExecutionEvidence(),
+        telemetry: {
+          cpuCores: os.cpus().length,
+          cpuModel: os.cpus()[0]?.model || 'Unknown CPU',
+          totalMemMb: Math.round(os.totalmem() / 1048576),
+          freeMemMb: Math.round(os.freemem() / 1048576),
+          memUsagePct: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100),
+          heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1048576),
+          platform: os.platform(),
+          arch: os.arch(),
+        },
       });
     } catch (err: any) {
       res.status(500).json({ status: 'error', error: err.message });
@@ -134,7 +150,7 @@ export function createApiRouter(
     try {
       const { url } = req.body;
       const targetUrl = url || (previewManager ? previewManager.getPreviewInfo().previewUrl : '/workspace-preview/index.html');
-      const fullUrl = targetUrl.startsWith('http') ? targetUrl : `http://127.0.0.1:3456${targetUrl}`;
+      const reqHost = req.get('host') || '127.0.0.1:3456'; const fullUrl = targetUrl.startsWith('http') ? targetUrl : `http://${reqHost}${targetUrl}`;
       const response = await fetch(fullUrl);
       const resText = await response.text();
       const check = PreviewManager.verifyPreviewNotMaxIDE(resText);
@@ -734,7 +750,7 @@ export function createApiRouter(
       const provider = providerRegistry.registerProvider(config);
       await modelRegistry.discoverProviderModels(provider.id);
       const health = await providerRegistry.checkProviderHealth(provider.id);
-      res.json({ success: true, provider: provider.config, health });
+      res.json({ success: true, provider: { ...provider.config, apiKey: provider.config.apiKey ? '••••••••••••••••' : undefined }, health });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
