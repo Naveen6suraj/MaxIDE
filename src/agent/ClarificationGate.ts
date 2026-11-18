@@ -121,6 +121,16 @@ export class ClarificationGate {
       };
     }
 
+    // 1.5 AUTONOMOUS DEFAULTS DELEGATION ("do whichever is best", "everything by yourself", "choose for me")
+    if (/\b(whichever\s+is\s+best|which\s+ever\s+is\s+best|choose\s+for\s+me|you\s+decide|by\s+yourself|do\s+it\s+yourself|use\s+defaults|up\s+to\s+you|just\s+build\s+it)\b/i.test(lower)) {
+      return {
+        intent: 'CLEAR_EXECUTABLE',
+        requiresClarification: false,
+        clarifiedPrompt: `${trimmed}. Choose sensible modern defaults (clean responsive web application, well-structured code, and live browser preview) and execute autonomously.`,
+        assumptionsMade: ['User delegated choices to MaxIDE APEX recommended defaults'],
+      };
+    }
+
     // 2. BEGINNER ASKING FOR HELP ("I don't know how to make this...", "Can you build it for me?")
     if (this.isBeginnerHelp(lower)) {
       const questions = this.generateQuestionsForBeginner(lower);
@@ -508,7 +518,7 @@ export class ClarificationGate {
     }
 
     // Resolve answer (handles numbers like "1", "2", or plain text, or "choose for me")
-    const isChooseForMe = answer.toLowerCase().includes('choose for me') || answer.toLowerCase().includes('not sure') || answer.toLowerCase().includes('default');
+    const isChooseForMe = /\b(choose\s+for\s+me|not\s+sure|default|whichever\s+is\s+best|which\s+ever\s+is\s+best|you\s+decide|by\s+yourself|up\s+to\s+you|anything)\b/i.test(answer);
 
     if (isChooseForMe) {
       // Automatically resolve all remaining questions with recommended options
