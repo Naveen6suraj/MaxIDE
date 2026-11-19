@@ -1,11 +1,15 @@
 /**
  * MaxIDE APEX - Autonomous Product Development & Engineering Orchestration
- * Shared Engineering Context: Central Project State, File Ownership Locks,
- * Checkpoints, Milestones, Task Boards, Defects, and Verifiable Handoffs.
+ * Shared Engineering Context (Mission 11.1 Hardened):
+ * - Durable Disk Checkpoints with SHA-256 manifests & rollback verification
+ * - File ownership locks with TTL, expiration recovery, and conflict detection
+ * - Structured agent handoffs, decision records, and defect diagnostics
+ * - Complete project context persistence & cold restart resume
  */
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { ProductSpec } from '../../intelligence/ProductSpecEngine.js';
 import { OutcomeAcceptanceReport } from '../../intelligence/OutcomeAcceptanceEngine.js';
 
@@ -79,14 +83,40 @@ export interface FileLock {
   filePath: string;
   ownerRole: SpecialistRole;
   acquiredAt: number;
+  ttlMs: number;
+  expiresAt: number;
   reason: string;
+}
+
+export interface LockConflictRecord {
+  filePath: string;
+  attemptedBy: SpecialistRole;
+  heldBy: SpecialistRole;
+  timestamp: number;
+  reason: string;
+}
+
+export interface CheckpointFileEntry {
+  path: string; // relative
+  sha256: string;
+  size: number;
+}
+
+export interface CheckpointManifest {
+  id: string;
+  name: string;
+  createdAt: string;
+  fileCount: number;
+  totalBytes: number;
+  files: CheckpointFileEntry[];
 }
 
 export interface CheckpointSnapshot {
   id: string;
   name: string;
   createdAt: number;
-  files: Map<string, string>; // relativePath -> fileContent
+  manifest: CheckpointManifest;
+  diskPath: string;
 }
 
 export interface ArchitectureDecision {
@@ -97,6 +127,17 @@ export interface ArchitectureDecision {
   targetPlatform: 'WEB_APP' | 'NATIVE_WINDOWS' | 'FULLSTACK' | 'HYBRID';
   decidedBy: SpecialistRole;
   timestamp: number;
+}
+
+export interface AgentHandoff {
+  id: string;
+  fromRole: SpecialistRole;
+  toRole: SpecialistRole;
+  taskId: string;
+  artifactsPassed: string[];
+  handoffRationale: string;
+  timestamp: number;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
 }
 
 export interface SharedContextState {
@@ -110,7 +151,9 @@ export interface SharedContextState {
   milestones: Milestone[];
   tasks: SpecialistTask[];
   activeLocks: FileLock[];
+  lockConflicts: LockConflictRecord[];
   checkpoints: CheckpointSnapshot[];
+  handoffs: AgentHandoff[];
   defects: EngineeringDefect[];
   acceptanceReport?: OutcomeAcceptanceReport;
   currentMilestoneId?: string;
@@ -122,7 +165,8 @@ export interface SharedContextState {
 
 export class SharedEngineeringContext {
   private state: SharedContextState;
-  private maxCheckpoints = 10;
+  private maxCheckpoints = 15;
+  private defaultLockTtlMs = 60000; // 60s default lock TTL
 
   constructor(workspaceRoot: string, prompt: string, sessionId?: string) {
     this.state = {
@@ -135,16 +179,22 @@ export class SharedEngineeringContext {
       milestones: [],
       tasks: [],
       activeLocks: [],
+      lockConflicts: [],
       checkpoints: [],
+      handoffs: [],
       defects: [],
       isPaused: false,
       isCancelled: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
+    // Load any existing durable checkpoints already on disk
+    this.discoverDiskCheckpoints();
   }
 
   public getState(): Readonly<SharedContextState> {
+    this.cleanExpiredLocks();
     return this.state;
   }
 
@@ -240,7 +290,6 @@ export class SharedEngineeringContext {
       task.completedAt = Date.now();
     }
 
-    // Check if current milestone is complete
     this.evaluateMilestones();
     this.state.updatedAt = Date.now();
   }
@@ -269,25 +318,73 @@ export class SharedEngineeringContext {
     }
   }
 
-  // --- File Ownership & Locking Mechanism ---
+  // --- Structured Agent Handoffs ---
 
-  public acquireLock(filePath: string, ownerRole: SpecialistRole, reason: string): boolean {
+  public recordHandoff(handoff: Omit<AgentHandoff, 'id' | 'timestamp' | 'status'>): AgentHandoff {
+    const id = `ho-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const fullHandoff: AgentHandoff = {
+      id,
+      ...handoff,
+      timestamp: Date.now(),
+      status: 'ACCEPTED',
+    };
+    this.state.handoffs.push(fullHandoff);
+    this.state.updatedAt = Date.now();
+    return fullHandoff;
+  }
+
+  public getHandoffs(): AgentHandoff[] {
+    return [...this.state.handoffs];
+  }
+
+  // --- File Ownership & Lock Mechanism with TTL & Expiration Recovery ---
+
+  public cleanExpiredLocks(): number {
+    const now = Date.now();
+    const initialCount = this.state.activeLocks.length;
+    this.state.activeLocks = this.state.activeLocks.filter((l) => l.expiresAt > now);
+    return initialCount - this.state.activeLocks.length;
+  }
+
+  public acquireLock(
+    filePath: string,
+    ownerRole: SpecialistRole,
+    reason: string,
+    ttlMs?: number
+  ): boolean {
+    this.cleanExpiredLocks();
     const normalized = path.normalize(filePath).toLowerCase();
     const existing = this.state.activeLocks.find(
       (l) => path.normalize(l.filePath).toLowerCase() === normalized
     );
 
+    const ttl = ttlMs || this.defaultLockTtlMs;
+    const now = Date.now();
+
     if (existing) {
       if (existing.ownerRole === ownerRole) {
-        return true; // Already holds lock
+        // Refresh TTL
+        existing.expiresAt = now + ttl;
+        return true;
       }
-      return false; // Held by another specialist!
+
+      // Record lock conflict
+      this.state.lockConflicts.push({
+        filePath,
+        attemptedBy: ownerRole,
+        heldBy: existing.ownerRole,
+        timestamp: now,
+        reason: `Role ${ownerRole} attempted to acquire locked file held by ${existing.ownerRole} (${existing.reason})`,
+      });
+      return false;
     }
 
     this.state.activeLocks.push({
       filePath,
       ownerRole,
-      acquiredAt: Date.now(),
+      acquiredAt: now,
+      ttlMs: ttl,
+      expiresAt: now + ttl,
       reason,
     });
     return true;
@@ -310,6 +407,7 @@ export class SharedEngineeringContext {
   }
 
   public assertCanModify(filePath: string, role: SpecialistRole): { allowed: boolean; reason?: string } {
+    this.cleanExpiredLocks();
     const normalized = path.normalize(filePath).toLowerCase();
     const lock = this.state.activeLocks.find(
       (l) => path.normalize(l.filePath).toLowerCase() === normalized
@@ -325,71 +423,231 @@ export class SharedEngineeringContext {
     return { allowed: true };
   }
 
-  // --- Reversible Checkpoints ---
-
-  public createCheckpoint(name: string): string {
-    const checkpointId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const snapshotFiles = new Map<string, string>();
-
-    try {
-      if (fs.existsSync(this.state.workspaceRoot)) {
-        const scanDir = (dir: string) => {
-          const entries = fs.readdirSync(dir, { withFileTypes: true });
-          for (const e of entries) {
-            const fullPath = path.join(dir, e.name);
-            const relPath = path.relative(this.state.workspaceRoot, fullPath);
-
-            if (e.name === 'node_modules' || e.name === '.git' || e.name === 'dist' || e.name.startsWith('.checkpoint')) {
-              continue;
-            }
-
-            if (e.isDirectory()) {
-              scanDir(fullPath);
-            } else if (e.isFile()) {
-              try {
-                const stat = fs.statSync(fullPath);
-                if (stat.size < 500000) { // Keep snapshots under 500KB per file
-                  const content = fs.readFileSync(fullPath, 'utf8');
-                  snapshotFiles.set(relPath, content);
-                }
-              } catch {}
-            }
-          }
-        };
-
-        scanDir(this.state.workspaceRoot);
-      }
-    } catch {}
-
-    const checkpoint: CheckpointSnapshot = {
-      id: checkpointId,
-      name,
-      createdAt: Date.now(),
-      files: snapshotFiles,
-    };
-
-    this.state.checkpoints.push(checkpoint);
-    if (this.state.checkpoints.length > this.maxCheckpoints) {
-      this.state.checkpoints.shift();
-    }
-
-    return checkpointId;
+  public getLockConflicts(): LockConflictRecord[] {
+    return [...this.state.lockConflicts];
   }
 
-  public rollbackToCheckpoint(checkpointId: string): boolean {
-    const cp = this.state.checkpoints.find((c) => c.id === checkpointId);
-    if (!cp) return false;
+  // --- Phase 2: Durable Disk-Persisted Checkpoints with Atomic Manifests & SHA-256 ---
+
+  private getCheckpointsBaseDir(): string {
+    return path.join(this.state.workspaceRoot, '.maxide', 'checkpoints');
+  }
+
+  private computeFileHash(absPath: string): string {
+    try {
+      const buffer = fs.readFileSync(absPath);
+      return crypto.createHash('sha256').update(buffer).digest('hex');
+    } catch {
+      return '';
+    }
+  }
+
+  private discoverDiskCheckpoints(): void {
+    try {
+      const baseDir = this.getCheckpointsBaseDir();
+      if (!fs.existsSync(baseDir)) return;
+
+      const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.endsWith('.tmp')) continue;
+
+        const manifestPath = path.join(baseDir, e.name, 'manifest.json');
+        if (fs.existsSync(manifestPath)) {
+          try {
+            const manifest: CheckpointManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            if (manifest && manifest.id && Array.isArray(manifest.files)) {
+              // Add to state if not already loaded
+              if (!this.state.checkpoints.some((c) => c.id === manifest.id)) {
+                this.state.checkpoints.push({
+                  id: manifest.id,
+                  name: manifest.name,
+                  createdAt: new Date(manifest.createdAt).getTime(),
+                  manifest,
+                  diskPath: path.join(baseDir, e.name),
+                });
+              }
+            }
+          } catch {}
+        }
+      }
+
+      this.state.checkpoints.sort((a, b) => a.createdAt - b.createdAt);
+    } catch {}
+  }
+
+  /**
+   * Atomic Durable Checkpoint Creation:
+   * 1. Scans workspace files (ignoring node_modules, .git, dist, .maxide).
+   * 2. Writes files and compute SHA-256 into a temporary staging folder.
+   * 3. Generates manifest.json.
+   * 4. Atomically renames staging folder to .maxide/checkpoints/<checkpoint-id>.
+   */
+  public createCheckpoint(name: string): string {
+    const checkpointId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const baseDir = this.getCheckpointsBaseDir();
+    const tmpDir = path.join(baseDir, `${checkpointId}.tmp`);
+    const finalDir = path.join(baseDir, checkpointId);
 
     try {
-      for (const [relPath, content] of cp.files.entries()) {
-        const fullPath = path.join(this.state.workspaceRoot, relPath);
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(fullPath, content, 'utf8');
+      if (!fs.existsSync(baseDir)) {
+        fs.mkdirSync(baseDir, { recursive: true });
       }
-      return true;
-    } catch {
+      fs.mkdirSync(tmpDir, { recursive: true });
+
+      const fileEntries: CheckpointFileEntry[] = [];
+      let totalBytes = 0;
+
+      const scanAndCopy = (dir: string) => {
+        if (!fs.existsSync(dir)) return;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const e of entries) {
+          const fullPath = path.join(dir, e.name);
+          const relPath = path.relative(this.state.workspaceRoot, fullPath).replace(/\\/g, '/');
+
+          if (
+            e.name === 'node_modules' ||
+            e.name === '.git' ||
+            e.name === 'dist' ||
+            e.name === '.maxide' ||
+            e.name.startsWith('.checkpoint')
+          ) {
+            continue;
+          }
+
+          if (e.isDirectory()) {
+            scanAndCopy(fullPath);
+          } else if (e.isFile()) {
+            try {
+              const stat = fs.statSync(fullPath);
+              if (stat.size < 5000000) { // Support files up to 5MB
+                const targetPath = path.join(tmpDir, 'data', relPath);
+                fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+                fs.copyFileSync(fullPath, targetPath);
+
+                const sha256 = this.computeFileHash(fullPath);
+                fileEntries.push({
+                  path: relPath,
+                  sha256,
+                  size: stat.size,
+                });
+                totalBytes += stat.size;
+              }
+            } catch {}
+          }
+        }
+      };
+
+      scanAndCopy(this.state.workspaceRoot);
+
+      const manifest: CheckpointManifest = {
+        id: checkpointId,
+        name,
+        createdAt: new Date().toISOString(),
+        fileCount: fileEntries.length,
+        totalBytes,
+        files: fileEntries,
+      };
+
+      fs.writeFileSync(path.join(tmpDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+
+      // Atomic Commit: Rename staging dir to final checkpoint dir
+      fs.renameSync(tmpDir, finalDir);
+
+      const snapshot: CheckpointSnapshot = {
+        id: checkpointId,
+        name,
+        createdAt: Date.now(),
+        manifest,
+        diskPath: finalDir,
+      };
+
+      this.state.checkpoints.push(snapshot);
+      if (this.state.checkpoints.length > this.maxCheckpoints) {
+        const oldest = this.state.checkpoints.shift();
+        if (oldest && fs.existsSync(oldest.diskPath)) {
+          try {
+            fs.rmSync(oldest.diskPath, { recursive: true, force: true });
+          } catch {}
+        }
+      }
+
+      return checkpointId;
+    } catch (err: any) {
+      if (fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+      }
+      throw new Error(`Failed to create durable checkpoint: ${err.message}`);
+    }
+  }
+
+  private lastRollbackReport?: { success: boolean; verifiedFiles: number; error?: string };
+
+  public getLastRollbackReport() {
+    return this.lastRollbackReport;
+  }
+
+  /**
+   * Rollback with SHA-256 Verification & User Change Protection:
+   * 1. Reads checkpoint directory and manifest.
+   * 2. Restores files tracked in manifest.
+   * 3. Verifies post-rollback SHA-256 hashes against manifest.
+   * 4. Does NOT clobber newly created files unless they collide with checkpoint targets.
+   * Returns true if and only if all files are verified successfully.
+   */
+  public rollbackToCheckpoint(checkpointId: string): boolean {
+    const cp = this.state.checkpoints.find((c) => c.id === checkpointId);
+    if (!cp || !fs.existsSync(cp.diskPath)) {
+      this.lastRollbackReport = { success: false, verifiedFiles: 0, error: `Checkpoint "${checkpointId}" not found on disk.` };
       return false;
     }
+
+    try {
+      const manifestPath = path.join(cp.diskPath, 'manifest.json');
+      if (!fs.existsSync(manifestPath)) {
+        this.lastRollbackReport = { success: false, verifiedFiles: 0, error: 'Checkpoint manifest corrupted or missing.' };
+        return false;
+      }
+
+      const manifest: CheckpointManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      let verifiedCount = 0;
+
+      for (const entry of manifest.files) {
+        const sourceData = path.join(cp.diskPath, 'data', entry.path);
+        const targetDest = path.join(this.state.workspaceRoot, entry.path);
+
+        if (fs.existsSync(sourceData)) {
+          fs.mkdirSync(path.dirname(targetDest), { recursive: true });
+          fs.copyFileSync(sourceData, targetDest);
+
+          // Verify restored hash
+          const restoredHash = this.computeFileHash(targetDest);
+          if (restoredHash === entry.sha256) {
+            verifiedCount++;
+          }
+        }
+      }
+
+      if (verifiedCount !== manifest.files.length) {
+        this.lastRollbackReport = {
+          success: false,
+          verifiedFiles: verifiedCount,
+          error: `Integrity check failed: ${manifest.files.length - verifiedCount} files failed SHA-256 verification after restore.`,
+        };
+        return false;
+      }
+
+      this.lastRollbackReport = { success: true, verifiedFiles: verifiedCount };
+      return true;
+    } catch (err: any) {
+      this.lastRollbackReport = { success: false, verifiedFiles: 0, error: err.message };
+      return false;
+    }
+  }
+
+  public getCheckpoints(): CheckpointSnapshot[] {
+    return [...this.state.checkpoints];
   }
 
   // --- Defects & Quality Diagnostics ---
@@ -448,7 +706,7 @@ export class SharedEngineeringContext {
     this.state.updatedAt = Date.now();
   }
 
-  // --- Persistence & Workspace Artifacts ---
+  // --- Phase 5: Complete Project Context Persistence & Cold Restart Resume ---
 
   public saveToDisk(): void {
     try {
@@ -457,8 +715,28 @@ export class SharedEngineeringContext {
         fs.mkdirSync(maxideDir, { recursive: true });
       }
 
-      // 1. Task Board JSON
-      const taskBoardData = {
+      // 1. Complete Context State JSON
+      const serializedState = {
+        sessionId: this.state.sessionId,
+        originalPrompt: this.state.originalPrompt,
+        interpretedObjective: this.state.interpretedObjective,
+        targetPlatform: this.state.targetPlatform,
+        currentMilestoneId: this.state.currentMilestoneId,
+        milestones: this.state.milestones,
+        tasks: this.state.tasks,
+        activeLocks: this.state.activeLocks,
+        defects: this.state.defects,
+        handoffs: this.state.handoffs,
+        architectureDecisions: this.state.architectureDecisions,
+        isPaused: this.state.isPaused,
+        isCancelled: this.state.isCancelled,
+        createdAt: this.state.createdAt,
+        updatedAt: this.state.updatedAt,
+      };
+      fs.writeFileSync(path.join(maxideDir, 'context.json'), JSON.stringify(serializedState, null, 2), 'utf8');
+
+      // 2. Task Board JSON
+      fs.writeFileSync(path.join(maxideDir, 'task_board.json'), JSON.stringify({
         sessionId: this.state.sessionId,
         objective: this.state.interpretedObjective,
         targetPlatform: this.state.targetPlatform,
@@ -467,20 +745,50 @@ export class SharedEngineeringContext {
         tasks: this.state.tasks,
         defects: this.state.defects,
         updatedAt: new Date(this.state.updatedAt).toISOString(),
-      };
-      fs.writeFileSync(path.join(maxideDir, 'task_board.json'), JSON.stringify(taskBoardData, null, 2), 'utf8');
+      }, null, 2), 'utf8');
 
-      // 2. Human-readable ROADMAP.md
-      const roadmapMd = this.generateRoadmapMarkdown();
-      fs.writeFileSync(path.join(maxideDir, 'ROADMAP.md'), roadmapMd, 'utf8');
+      // 3. Human-readable ROADMAP.md
+      fs.writeFileSync(path.join(maxideDir, 'ROADMAP.md'), this.generateRoadmapMarkdown(), 'utf8');
 
-      // 3. Architecture Decisions JSON
-      fs.writeFileSync(
-        path.join(maxideDir, 'architecture.json'),
-        JSON.stringify(this.state.architectureDecisions, null, 2),
-        'utf8'
-      );
+      // 4. Architecture Decisions & Handoffs
+      fs.writeFileSync(path.join(maxideDir, 'decisions.json'), JSON.stringify(this.state.architectureDecisions, null, 2), 'utf8');
+      fs.writeFileSync(path.join(maxideDir, 'handoffs.json'), JSON.stringify(this.state.handoffs, null, 2), 'utf8');
+      fs.writeFileSync(path.join(maxideDir, 'defects.json'), JSON.stringify(this.state.defects, null, 2), 'utf8');
     } catch {}
+  }
+
+  /**
+   * Cold Restart: Resume existing project engineering context directly from disk.
+   */
+  public static loadFromDisk(workspaceRoot: string): SharedEngineeringContext | null {
+    const contextJson = path.join(workspaceRoot, '.maxide', 'context.json');
+    if (!fs.existsSync(contextJson)) return null;
+
+    try {
+      const data = JSON.parse(fs.readFileSync(contextJson, 'utf8'));
+      const context = new SharedEngineeringContext(workspaceRoot, data.originalPrompt || '', data.sessionId);
+
+      context.state.interpretedObjective = data.interpretedObjective || '';
+      context.state.targetPlatform = data.targetPlatform || 'WEB_APP';
+      context.state.currentMilestoneId = data.currentMilestoneId;
+      context.state.milestones = Array.isArray(data.milestones) ? data.milestones : [];
+      context.state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      context.state.defects = Array.isArray(data.defects) ? data.defects : [];
+      context.state.handoffs = Array.isArray(data.handoffs) ? data.handoffs : [];
+      context.state.architectureDecisions = Array.isArray(data.architectureDecisions) ? data.architectureDecisions : [];
+      context.state.isPaused = Boolean(data.isPaused);
+      context.state.isCancelled = Boolean(data.isCancelled);
+      context.state.createdAt = data.createdAt || Date.now();
+      context.state.updatedAt = data.updatedAt || Date.now();
+
+      // Clean any expired locks saved from previous run
+      context.cleanExpiredLocks();
+      context.discoverDiskCheckpoints();
+
+      return context;
+    } catch {
+      return null;
+    }
   }
 
   private persistSpecToWorkspace(): void {

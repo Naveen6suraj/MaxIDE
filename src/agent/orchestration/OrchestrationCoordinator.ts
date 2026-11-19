@@ -7,6 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import {
   SharedEngineeringContext,
   SpecialistTask,
@@ -32,6 +33,31 @@ export interface OrchestrationOptions {
   maxTotalSteps?: number;
   onActivity?: (type: string, message: string, data?: any) => void;
   onProgress?: (progressPercent: number, milestoneName: string, activeRole: SpecialistRole) => void;
+}
+
+export interface ResourceTelemetry {
+  timestamp: number;
+  memory: {
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    rssBytes: number;
+    systemTotalBytes: number;
+    systemFreeBytes: number;
+  };
+  cpu: {
+    cores: number;
+    model: string;
+  };
+  processes: {
+    activeCount: number;
+    tracked: Array<{
+      pid: number;
+      command: string;
+      isBackground: boolean;
+      status: string;
+      startedAt: number;
+    }>;
+  };
 }
 
 export interface OrchestrationReport {
@@ -180,6 +206,103 @@ export class OrchestrationCoordinator {
       context.saveToDisk();
     }
 
+    return this.buildCompletionReport(context, allFilesTouched, startTime, userPrompt);
+  }
+
+  public async resumeExistingProject(
+    options: OrchestrationOptions = {}
+  ): Promise<OrchestrationReport> {
+    const startTime = Date.now();
+    const context = SharedEngineeringContext.loadFromDisk(this.workspaceRoot);
+    if (!context) {
+      throw new Error(`No persisted autonomous engineering project found in ${this.workspaceRoot}.`);
+    }
+
+    const log = (type: string, msg: string, data?: any) => {
+      if (options.onActivity) options.onActivity(type, msg, data);
+    };
+
+    const prompt = context.getState().originalPrompt;
+    log('thought', `[Orchestrator] Resuming autonomous engineering project "${prompt}" from disk context.`);
+
+    let stepCount = 0;
+    const maxSteps = options.maxTotalSteps || 20;
+    const allFilesTouched: string[] = [];
+
+    while (stepCount < maxSteps) {
+      stepCount++;
+
+      if (context.getState().isCancelled) {
+        log('error', `[Orchestrator] Engineering pipeline cancelled by user.`);
+        return this.buildFailureReport(context, 'Pipeline cancelled by user.', startTime);
+      }
+
+      const nextTasks = context.getNextExecutableTasks();
+      if (nextTasks.length === 0) {
+        log('thought', `[Orchestrator] All tasks satisfied or pending dependencies resolved.`);
+        break;
+      }
+
+      const taskToRun = nextTasks[0];
+      log('thought', `[Orchestrator] Executing resumed task "${taskToRun.title}" (${taskToRun.assignedRole})...`);
+
+      const cpId = context.createCheckpoint(`pre-${taskToRun.id}`);
+      const result = await this.dispatchSpecialist(context, taskToRun);
+
+      if (result.success) {
+        allFilesTouched.push(...result.filesCreated, ...result.filesModified);
+        log('thought', `[${taskToRun.assignedRole}] Task completed: ${result.summary}`);
+      } else {
+        log('error', `[${taskToRun.assignedRole}] Task failed: ${result.error}`);
+        if (taskToRun.retryCount >= taskToRun.maxRetries) {
+          log('recovery', `[Orchestrator] Reverting workspace changes to checkpoint "${cpId}" due to persistent specialist failure.`);
+          context.rollbackToCheckpoint(cpId);
+        }
+      }
+
+      context.saveToDisk();
+    }
+
+    return this.buildCompletionReport(context, allFilesTouched, startTime, prompt);
+  }
+
+  public getResourceTelemetry(): ResourceTelemetry {
+    const mem = process.memoryUsage();
+    const cpus = os.cpus();
+    const tracked = this.safeTerminal ? this.safeTerminal.getTrackedProcesses() : [];
+
+    return {
+      timestamp: Date.now(),
+      memory: {
+        heapUsedBytes: mem.heapUsed,
+        heapTotalBytes: mem.heapTotal,
+        rssBytes: mem.rss,
+        systemTotalBytes: os.totalmem(),
+        systemFreeBytes: os.freemem(),
+      },
+      cpu: {
+        cores: cpus.length,
+        model: cpus[0]?.model || 'AMD / Intel x64 Processor',
+      },
+      processes: {
+        activeCount: tracked.length,
+        tracked: tracked.map((p) => ({
+          pid: p.pid,
+          command: p.command,
+          isBackground: p.isBackground,
+          status: p.status,
+          startedAt: p.startedAt,
+        })),
+      },
+    };
+  }
+
+  private buildCompletionReport(
+    context: SharedEngineeringContext,
+    allFilesTouched: string[],
+    startTime: number,
+    userPrompt: string
+  ): OrchestrationReport {
     // Stage Final: Outcome Acceptance Evaluation
     const acceptance = context.getAcceptanceReport();
     const finalScore = acceptance ? acceptance.scorecard.compositeQualityScore : 1.0;

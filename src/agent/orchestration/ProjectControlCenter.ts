@@ -116,6 +116,64 @@ export class ProjectControlCenter {
       }
     });
 
+    // 8. Get Durable Checkpoint History
+    router.get('/checkpoints', (req: Request, res: Response) => {
+      if (this.currentContext) {
+        return res.json({
+          success: true,
+          checkpoints: this.currentContext.getState().checkpoints,
+        });
+      }
+      return res.json({ success: true, checkpoints: [] });
+    });
+
+    // 9. Rollback to Specific Durable Checkpoint
+    router.post('/rollback', (req: Request, res: Response) => {
+      const checkpointId = req.body.checkpointId;
+      if (!checkpointId) {
+        return res.status(400).json({ success: false, error: 'checkpointId is required.' });
+      }
+
+      if (this.currentContext) {
+        const ok = this.currentContext.rollbackToCheckpoint(checkpointId);
+        return res.json({
+          success: ok,
+          message: ok ? `Rolled back to checkpoint ${checkpointId}.` : `Failed to rollback to checkpoint ${checkpointId}.`,
+        });
+      }
+      return res.status(400).json({ success: false, error: 'No active context for rollback.' });
+    });
+
+    // 10. Get Structured Specialist Handoffs
+    router.get('/handoffs', (req: Request, res: Response) => {
+      if (this.currentContext) {
+        return res.json({
+          success: true,
+          handoffs: this.currentContext.getHandoffs(),
+        });
+      }
+      return res.json({ success: true, handoffs: [] });
+    });
+
+    // 11. Real-time System & Process Resource Telemetry
+    router.get('/resources', (req: Request, res: Response) => {
+      const telemetry = this.coordinator.getResourceTelemetry();
+      return res.json({
+        success: true,
+        telemetry,
+      });
+    });
+
+    // 12. Cold Restart / Resume Project from Disk Context
+    router.post('/resume-project', async (req: Request, res: Response) => {
+      try {
+        const report = await this.coordinator.resumeExistingProject();
+        return res.json({ success: true, report });
+      } catch (err: any) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
     return router;
   }
 }

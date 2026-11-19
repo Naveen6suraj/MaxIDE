@@ -4,10 +4,16 @@
  * 
  * Classifies commands into SAFE, APPROVAL_REQUIRED, and BLOCKED.
  * Enforces workspace isolation and manages interactive approval requests.
+ * 
+ * Mission 11.1 Hardening:
+ * - Process tree termination (taskkill /PID /T /F on Windows) preventing orphan background processes
+ * - Long-running task streaming and background process tracking
+ * - Safe cancellation and timeout recovery
  */
 
-import { exec, ChildProcess } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import path from 'path';
+import os from 'os';
 import { PermissionLevel } from '../ToolDefinition.js';
 
 export interface CommandApprovalRequest {
@@ -28,6 +34,17 @@ export interface TerminalExecutionResult {
   durationMs: number;
   safetyTier: PermissionLevel;
   error?: string;
+  pid?: number;
+  isBackground?: boolean;
+}
+
+export interface TrackedProcess {
+  pid: number;
+  command: string;
+  startedAt: number;
+  childProcess: ChildProcess;
+  isBackground: boolean;
+  status: 'RUNNING' | 'COMPLETED' | 'TIMED_OUT' | 'KILLED' | 'ERROR';
 }
 
 export class SafeTerminal {
@@ -35,6 +52,7 @@ export class SafeTerminal {
   private allowedForTaskCommands: Set<string> = new Set();
   private pendingApprovals: Map<string, CommandApprovalRequest> = new Map();
   private onApprovalRequested?: (req: CommandApprovalRequest) => void;
+  private activeProcesses: Map<number, TrackedProcess> = new Map();
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -192,11 +210,77 @@ export class SafeTerminal {
   }
 
   /**
+   * Cleanly terminate a process and all its child sub-processes (Process Tree Termination)
+   * On Windows: uses taskkill /PID <pid> /T /F
+   * On POSIX: sends SIGKILL to process group
+   */
+  public async killProcessTree(pid: number): Promise<boolean> {
+    const tracked = this.activeProcesses.get(pid);
+    if (tracked?.childProcess) {
+      try {
+        tracked.childProcess.kill('SIGKILL');
+      } catch {}
+    }
+    this.activeProcesses.delete(pid);
+
+    return new Promise((resolve) => {
+      if (os.platform() === 'win32') {
+        const killer = exec(`taskkill /PID ${pid} /T /F`, { timeout: 3000 }, (err) => {
+          resolve(!err);
+        });
+        killer.on('error', () => resolve(true));
+      } else {
+        try {
+          process.kill(-pid, 'SIGKILL');
+          resolve(true);
+        } catch {
+          try {
+            process.kill(pid, 'SIGKILL');
+            resolve(true);
+          } catch {
+            resolve(false);
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Terminate all active processes tracked by this SafeTerminal instance.
+   */
+  public async terminateAllProcesses(): Promise<void> {
+    const pids = Array.from(this.activeProcesses.keys());
+    for (const pid of pids) {
+      await this.killProcessTree(pid);
+    }
+    this.activeProcesses.clear();
+  }
+
+  public getTrackedProcesses(): Array<{ pid: number; command: string; status: string; uptimeMs: number; isBackground: boolean; startedAt: number }> {
+    const now = Date.now();
+    return Array.from(this.activeProcesses.values()).map(p => ({
+      pid: p.pid,
+      command: p.command,
+      status: p.status,
+      isBackground: Boolean(p.isBackground),
+      startedAt: p.startedAt,
+      uptimeMs: now - p.startedAt,
+    }));
+  }
+
+  /**
    * Execute a command safely in the workspace.
+   * Supports process tree tracking, timeouts with process-tree cleanup, and background tasks.
    */
   public async executeCommand(
     command: string,
-    options: { timeoutMs?: number; reason?: string; bypassApproval?: boolean } = {}
+    options: {
+      timeoutMs?: number;
+      reason?: string;
+      bypassApproval?: boolean;
+      isBackground?: boolean;
+      onOutput?: (chunk: string) => void;
+    } = {}
   ): Promise<TerminalExecutionResult> {
     const t0 = Date.now();
     const classification = this.classifyCommand(command);
@@ -228,29 +312,133 @@ export class SafeTerminal {
       }
     }
 
-    const timeout = options.timeoutMs || 45000;
+    const timeoutMs = options.timeoutMs || 45000;
 
     return new Promise((resolve) => {
-      exec(
-        command,
-        {
-          cwd: this.workspaceRoot,
-          timeout,
-          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-        },
-        (error, stdout, stderr) => {
-          const durationMs = Date.now() - t0;
+      let isSettled = false;
+      let stdoutBuf = '';
+      let stderrBuf = '';
+
+      // Use shell spawn for process group ownership
+      const shell = os.platform() === 'win32' ? 'cmd.exe' : '/bin/sh';
+      const shellFlag = os.platform() === 'win32' ? '/c' : '-c';
+
+      const child = spawn(shell, [shellFlag, command], {
+        cwd: this.workspaceRoot,
+        windowsHide: true,
+      });
+
+      const pid = child.pid || 0;
+
+      if (pid) {
+        this.activeProcesses.set(pid, {
+          pid,
+          command,
+          startedAt: t0,
+          childProcess: child,
+          isBackground: Boolean(options.isBackground),
+          status: 'RUNNING',
+        });
+      }
+
+      // Background process handling: return quickly once spawned
+      if (options.isBackground && pid) {
+        try {
+          child.unref();
+        } catch {}
+        setTimeout(() => {
+          if (!isSettled) {
+            isSettled = true;
+            resolve({
+              command,
+              exitCode: 0,
+              stdout: `[Background process started with PID ${pid}]`,
+              stderr: '',
+              durationMs: Date.now() - t0,
+              safetyTier: classification.level,
+              pid,
+              isBackground: true,
+            });
+          }
+        }, 50);
+      }
+
+      child.stdout?.on('data', (data) => {
+        const text = data.toString();
+        stdoutBuf += text;
+        if (options.onOutput) options.onOutput(text);
+      });
+
+      child.stderr?.on('data', (data) => {
+        const text = data.toString();
+        stderrBuf += text;
+        if (options.onOutput) options.onOutput(text);
+      });
+
+      // Timeout timer with Process Tree Termination
+      const timer = setTimeout(async () => {
+        if (!isSettled) {
+          isSettled = true;
+          if (pid) {
+            const proc = this.activeProcesses.get(pid);
+            if (proc) proc.status = 'TIMED_OUT';
+            await this.killProcessTree(pid);
+          }
           resolve({
             command,
-            exitCode: error ? error.code || 1 : 0,
-            stdout: stdout || '',
-            stderr: stderr || '',
-            durationMs,
+            exitCode: 124, // Standard timeout exit code
+            stdout: stdoutBuf,
+            stderr: stderrBuf + `\n[TIMEOUT] Command timed out after ${timeoutMs}ms. Process tree terminated cleanly to prevent orphan processes.`,
+            durationMs: Date.now() - t0,
             safetyTier: classification.level,
-            error: error ? error.message : undefined,
+            error: `Command timed out after ${timeoutMs}ms`,
+            pid,
           });
         }
-      );
+      }, timeoutMs);
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (!isSettled) {
+          isSettled = true;
+          if (pid) {
+            const proc = this.activeProcesses.get(pid);
+            if (proc) proc.status = 'COMPLETED';
+            this.activeProcesses.delete(pid);
+          }
+          resolve({
+            command,
+            exitCode: code ?? 0,
+            stdout: stdoutBuf,
+            stderr: stderrBuf,
+            durationMs: Date.now() - t0,
+            safetyTier: classification.level,
+            pid,
+          });
+        }
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        if (!isSettled) {
+          isSettled = true;
+          if (pid) {
+            const proc = this.activeProcesses.get(pid);
+            if (proc) proc.status = 'ERROR';
+            this.activeProcesses.delete(pid);
+          }
+          resolve({
+            command,
+            exitCode: 1,
+            stdout: stdoutBuf,
+            stderr: stderrBuf + `\n[ERROR] ${err.message}`,
+            durationMs: Date.now() - t0,
+            safetyTier: classification.level,
+            error: err.message,
+            pid,
+          });
+        }
+      });
     });
   }
 }

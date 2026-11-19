@@ -13,6 +13,7 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 
 export type OperationCategory =
   | 'ROUTINE_EDIT'
@@ -43,13 +44,30 @@ export class WorkspaceGuard {
 
     // Escape containment check
     if (!resolved.startsWith(this.workspaceRoot)) {
-      return {
+      const evalRes: GuardEvaluation = {
         allowed: false,
         requiresApproval: true,
         category: 'DESTRUCTIVE_FILESYSTEM',
         reason: `Target path "${filePath}" escapes active workspace containment (${this.workspaceRoot}).`,
         recommendedAction: 'Block unauthorized filesystem access outside workspace.',
       };
+      this.logSecurityEvent('PATH_TRAVERSAL_BLOCKED', filePath, evalRes.reason);
+      return evalRes;
+    }
+
+    // Secret credential protection
+    const lowerFile = path.basename(resolved).toLowerCase();
+    const isSecretFile = lowerFile === '.env' || lowerFile.endsWith('.pem') || lowerFile.endsWith('.key') || lowerFile === 'id_rsa' || lowerFile === 'secrets.json';
+    if (isSecretFile && (operation === 'WRITE' || operation === 'DELETE')) {
+      const evalRes: GuardEvaluation = {
+        allowed: false,
+        requiresApproval: true,
+        category: 'SECRET_ACCESS',
+        reason: `Modification or deletion of credential secret "${path.basename(resolved)}" is restricted.`,
+        recommendedAction: 'Block unauthorized write/delete on sensitive credentials.',
+      };
+      this.logSecurityEvent('CREDENTIAL_GUARD_TRIGGERED', filePath, evalRes.reason);
+      return evalRes;
     }
 
     if (operation === 'DELETE') {
@@ -77,6 +95,39 @@ export class WorkspaceGuard {
       requiresApproval: false,
       category: 'ROUTINE_EDIT',
     };
+  }
+
+  public evaluateFileOwnership(filePath: string, requestingRole: string, activeLocks: Array<{ filePath: string; ownerRole: string }>): GuardEvaluation {
+    const norm = path.normalize(filePath).toLowerCase();
+    const existingLock = activeLocks.find(l => path.normalize(l.filePath).toLowerCase() === norm);
+    if (existingLock && existingLock.ownerRole !== requestingRole) {
+      const reason = `File "${filePath}" is actively locked by "${existingLock.ownerRole}". Role "${requestingRole}" cannot overwrite it.`;
+      this.logSecurityEvent('LOCK_CONFLICT_PREVENTED', filePath, reason);
+      return {
+        allowed: false,
+        requiresApproval: true,
+        category: 'ROUTINE_EDIT',
+        reason,
+        recommendedAction: 'Wait for owner specialist to release file lock or finish task.',
+      };
+    }
+    return {
+      allowed: true,
+      requiresApproval: false,
+      category: 'ROUTINE_EDIT',
+    };
+  }
+
+  public logSecurityEvent(eventType: string, target: string, details?: string): void {
+    try {
+      const logDir = path.join(this.workspaceRoot, '.maxide');
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      const logFile = path.join(logDir, 'security_audit.log');
+      const entry = `[${new Date().toISOString()}] [${eventType}] Target: "${target}" - ${details || ''}\n`;
+      fs.appendFileSync(logFile, entry, 'utf8');
+    } catch {}
   }
 
   public evaluateCommand(command: string): GuardEvaluation {

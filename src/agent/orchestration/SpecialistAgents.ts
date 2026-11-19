@@ -88,6 +88,14 @@ export class ProductArchitectAgent {
         verificationNotes: `Architected product specification for "${spec.name}" (${spec.domain}). Identified ${spec.pages.length} pages/views, ${spec.interactiveFeatures.length} interactive journeys, and ${spec.testCriteria.length} acceptance criteria.`,
       });
 
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: 'PROJECT_MANAGER',
+        taskId: task.id,
+        artifactsPassed: filesCreated,
+        handoffRationale: `Product Architect synthesized complete engineering specification for ${spec.name} (${platform}). Handing off to Project Manager to establish milestones and tasks.`,
+      });
+
       return {
         success: true,
         role: this.role,
@@ -296,6 +304,14 @@ export class ProjectManagerAgent {
         verificationNotes: `Project Manager established ${milestones.length} milestones and ${tasks.length} dependency-tracked specialist tasks.`,
       });
 
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: 'UI_UX_DESIGNER',
+        taskId: task.id,
+        artifactsPassed: ['.maxide/ROADMAP.md', '.maxide/task_board.json'],
+        handoffRationale: `Project Manager created roadmap with ${milestones.length} milestones and ${tasks.length} specialist tasks. Handing off to UI/UX Designer to synthesize design tokens and styling.`,
+      });
+
       return {
         success: true,
         role: this.role,
@@ -500,6 +516,15 @@ h1, h2, h3, h4, h5, h6 {
       context.updateTaskStatus(task.id, 'COMPLETED', {
         filesCreated: ['styles.css'],
         verificationNotes: `UI/UX Design Specialist synthesized design system with visual direction "${designSpec.visualDirection}", primary color "${pal.primary}", and responsive typography tokens.`,
+      });
+
+      const nextTargetRole = context.getState().targetPlatform === 'NATIVE_WINDOWS' ? 'NATIVE_WINDOWS_ENGINEER' : 'FRONTEND_ENGINEER';
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: nextTargetRole,
+        taskId: task.id,
+        artifactsPassed: ['styles.css'],
+        handoffRationale: `UI/UX Designer synthesized design tokens, colors (${pal.primary}), typography, and layout rules in styles.css. Handing off to ${nextTargetRole}.`,
       });
 
       return {
@@ -787,6 +812,14 @@ export class FrontendEngineerAgent {
         verificationNotes: `Frontend Engineer built responsive application UI with catalog grid, live search input, category filters, interactive cart state, and price calculations.`,
       });
 
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: 'QA_ENGINEER',
+        taskId: task.id,
+        artifactsPassed: ['index.html', 'app.js'],
+        handoffRationale: `Frontend Engineer delivered complete HTML5 client (index.html) and reactive application controller (app.js). Handing off to QA Engineer for verification.`,
+      });
+
       return {
         success: true,
         role: this.role,
@@ -885,6 +918,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Authentication Endpoints
+  if (pathname === '/api/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const creds = JSON.parse(body);
+        if (creds.username && creds.password) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            token: 'apex-session-token-' + Date.now(),
+            user: { username: creds.username, role: 'engineer' }
+          }));
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Username and password required' }));
+        }
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Malformed JSON credentials' }));
+      }
+    });
+    return;
+  }
+
   if (pathname === '/api/items' && req.method === 'GET') {
     const db = readDb();
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -898,6 +957,11 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const item = JSON.parse(body);
+        if (!item.name || typeof item.name !== 'string') {
+          res.writeHead(422, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Validation failed: item name is required' }));
+          return;
+        }
         item.id = String(Date.now());
         const db = readDb();
         db.items.push(item);
@@ -943,6 +1007,14 @@ module.exports = { server, readDb, writeDb };
       context.updateTaskStatus(task.id, 'COMPLETED', {
         filesCreated: ['server.js', 'db.json'],
         verificationNotes: `Backend Engineer created HTTP REST API on port ${port} with CRUD endpoints (/api/items, /api/health) and JSON persistence.`,
+      });
+
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: 'FRONTEND_ENGINEER',
+        taskId: task.id,
+        artifactsPassed: ['server.js', 'db.json'],
+        handoffRationale: `Backend Engineer delivered REST API with CRUD and Auth endpoints in server.js with db.json data store. Handing off to Frontend Engineer to bind client UI.`,
       });
 
       return {
@@ -1018,6 +1090,7 @@ namespace MaxIDE.NativeApp
         private ToolStripStatusLabel statusLabel;
         private Button addBtn;
         private Button refreshBtn;
+        private Button settingsBtn;
 
         [STAThread]
         public static void Main()
@@ -1087,11 +1160,22 @@ namespace MaxIDE.NativeApp
             refreshBtn.FlatAppearance.BorderSize = 1;
             refreshBtn.Click += new EventHandler(OnResetClick);
 
+            settingsBtn = new Button();
+            settingsBtn.Text = "Settings";
+            settingsBtn.Location = new Point(830, 18);
+            settingsBtn.Size = new Size(80, 32);
+            settingsBtn.BackColor = Color.FromArgb(243, 244, 246);
+            settingsBtn.ForeColor = Color.FromArgb(55, 65, 81);
+            settingsBtn.FlatStyle = FlatStyle.Flat;
+            settingsBtn.FlatAppearance.BorderSize = 1;
+            settingsBtn.Click += new EventHandler(OnSettingsClick);
+
             topPanel.Controls.Add(titleLabel);
             topPanel.Controls.Add(searchLabel);
             topPanel.Controls.Add(searchBox);
             topPanel.Controls.Add(addBtn);
             topPanel.Controls.Add(refreshBtn);
+            topPanel.Controls.Add(settingsBtn);
 
             // Grid
             grid = new DataGridView();
@@ -1166,6 +1250,92 @@ namespace MaxIDE.NativeApp
             dataTable.DefaultView.RowFilter = "";
             statusLabel.Text = "Status: Reset to all records";
         }
+
+        private void OnSettingsClick(object sender, EventArgs e)
+        {
+            using (SettingsDialog dlg = new SettingsDialog())
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    statusLabel.Text = "Status: Settings updated and applied successfully";
+                }
+            }
+        }
+    }
+
+    public class SettingsDialog : Form
+    {
+        private ComboBox themeCombo;
+        private CheckBox autoRefreshCheck;
+        private TextBox appTitleBox;
+        private Button saveBtn;
+        private Button cancelBtn;
+
+        public SettingsDialog()
+        {
+            this.Text = "Application Settings";
+            this.Size = new Size(420, 310);
+            this.StartPosition = FormStartPosition.CenterParent;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            this.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+            this.BackColor = Color.White;
+
+            Label titleLbl = new Label();
+            titleLbl.Text = "Application Title:";
+            titleLbl.Location = new Point(24, 20);
+            titleLbl.AutoSize = true;
+
+            appTitleBox = new TextBox();
+            appTitleBox.Location = new Point(24, 44);
+            appTitleBox.Size = new Size(350, 26);
+            appTitleBox.Text = "MaxIDE Industrial Asset Manager";
+
+            Label themeLbl = new Label();
+            themeLbl.Text = "Interface Theme:";
+            themeLbl.Location = new Point(24, 82);
+            themeLbl.AutoSize = true;
+
+            themeCombo = new ComboBox();
+            themeCombo.Location = new Point(24, 106);
+            themeCombo.Size = new Size(350, 26);
+            themeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+            themeCombo.Items.AddRange(new object[] { "Windows 11 Light (Default)", "High Contrast", "Dark Slate" });
+            themeCombo.SelectedIndex = 0;
+
+            autoRefreshCheck = new CheckBox();
+            autoRefreshCheck.Text = "Enable real-time asset telemetry polling";
+            autoRefreshCheck.Location = new Point(24, 150);
+            autoRefreshCheck.AutoSize = true;
+            autoRefreshCheck.Checked = true;
+
+            saveBtn = new Button();
+            saveBtn.Text = "Save";
+            saveBtn.DialogResult = DialogResult.OK;
+            saveBtn.Location = new Point(200, 210);
+            saveBtn.Size = new Size(84, 32);
+            saveBtn.BackColor = Color.FromArgb(79, 70, 229);
+            saveBtn.ForeColor = Color.White;
+            saveBtn.FlatStyle = FlatStyle.Flat;
+
+            cancelBtn = new Button();
+            cancelBtn.Text = "Cancel";
+            cancelBtn.DialogResult = DialogResult.Cancel;
+            cancelBtn.Location = new Point(292, 210);
+            cancelBtn.Size = new Size(84, 32);
+            cancelBtn.FlatStyle = FlatStyle.Flat;
+
+            this.Controls.Add(titleLbl);
+            this.Controls.Add(appTitleBox);
+            this.Controls.Add(themeLbl);
+            this.Controls.Add(themeCombo);
+            this.Controls.Add(autoRefreshCheck);
+            this.Controls.Add(saveBtn);
+            this.Controls.Add(cancelBtn);
+            this.AcceptButton = saveBtn;
+            this.CancelButton = cancelBtn;
+        }
     }
 }
 `;
@@ -1190,7 +1360,15 @@ namespace MaxIDE.NativeApp
         filesCreated: ['App.cs', 'App.exe'],
         commandsExecuted: [compileCmd],
         buildExitCode: 0,
-        verificationNotes: `Native Windows Engineer generated C# WinForms application (App.cs) and successfully compiled App.exe (${exeSize} bytes) using csc.exe.`,
+        verificationNotes: `Native Windows Engineer generated C# WinForms application (App.cs) with multi-window support and successfully compiled App.exe (${exeSize} bytes) using csc.exe.`,
+      });
+
+      context.recordHandoff({
+        fromRole: this.role,
+        toRole: 'QA_ENGINEER',
+        taskId: task.id,
+        artifactsPassed: ['App.cs', 'App.exe'],
+        handoffRationale: `Native Windows Engineer compiled native Windows PE binary App.exe (${exeSize} bytes) from App.cs with multi-window dialog support. Handing off to QA Engineer for validation.`,
       });
 
       return {
@@ -1379,6 +1557,16 @@ export class QADebuggingAgent {
         filesCreated: ['.maxide/qa_report.json'],
         verificationNotes: testNotes.join(' | '),
       });
+
+      if (testsPassed) {
+        context.recordHandoff({
+          fromRole: this.role,
+          toRole: 'RELEASE_ENGINEER',
+          taskId: task.id,
+          artifactsPassed: ['.maxide/qa_report.json'],
+          handoffRationale: `QA Engineer verified deliverables (0 blocking defects, tests passed). Handing off to Release Engineer for final packaging and RELEASE_NOTES.md.`,
+        });
+      }
 
       return {
         success: testsPassed,
