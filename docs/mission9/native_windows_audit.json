@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-19T08:53:03.287Z",
+  "generatedAt": "2026-11-19T08:58:51.712Z",
   "checks": [
     {
       "name": "Compiler Discovery",
@@ -24,7 +24,7 @@
     {
       "name": "Native Launch, Window Inspection & Clean Shutdown",
       "passed": true,
-      "detail": "PID=14976, MainWindowTitle=\"MaxIDE Native Verification Window\", clean exit verified"
+      "detail": "PID=25492, MainWindowTitle=\"MaxIDE Native Verification Window\", clean exit verified"
     },
     {
       "name": "Installed Windows Desktop App Verification",
@@ -56,6 +56,6 @@
     "hasVite": false,
     "gitAvailable": true,
     "modelSupportsTools": true,
-    "detectedAt": "2026-11-19T08:53:04.255Z"
+    "detectedAt": "2026-11-19T08:58:52.692Z"
   }
 }

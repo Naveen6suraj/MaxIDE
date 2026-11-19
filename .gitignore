@@ -48,3 +48,4 @@ test_*
 test_*/**
 .maxide/
 .agent_data/
+.audit_m10_1/
