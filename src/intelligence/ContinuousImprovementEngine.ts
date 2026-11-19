@@ -16,6 +16,7 @@ import { DecisionPlan, ReasoningDecisionEngine } from './ReasoningDecisionEngine
 import { EvaluationRecord, RewardWeights, SelfEvaluationEngine } from './SelfEvaluationEngine.js';
 import { PostTaskReviewResult, SelfImprovementReviewer } from './SelfImprovementReviewer.js';
 import { ToolchainCapabilities } from './ToolchainDetector.js';
+import { OutcomeAcceptanceReport } from './OutcomeAcceptanceEngine.js';
 
 export interface OfflineBenchmarkScenario {
   id: string;
@@ -117,6 +118,7 @@ export interface IntelligenceDashboardSnapshot {
   feasibilityStats: { totalPlans: number; totalCandidatesEvaluated: number; totalFilteredOut: number; blockedCount: number };
   intentStats: Record<string, number>;
   lastOfflineEval: OfflineEvaluationReport | null;
+  lastOutcomeAcceptance?: OutcomeAcceptanceReport | null;
 }
 
 export class ContinuousImprovementEngine {
@@ -365,6 +367,7 @@ export class AdaptiveIntelligenceCoordinator {
   public readonly reviewer: SelfImprovementReviewer;
 
   private lastDecisionPlan: DecisionPlan | null = null;
+  private lastOutcomeAcceptance: OutcomeAcceptanceReport | null = null;
   private feasibilityStats = { totalPlans: 0, totalCandidatesEvaluated: 0, totalFilteredOut: 0, blockedCount: 0 };
   private intentStats: Record<string, number> = {};
 
@@ -574,6 +577,14 @@ export class AdaptiveIntelligenceCoordinator {
     this.memory.recordToolTelemetry(toolName, success, latencyMs);
   }
 
+  public recordOutcomeAcceptance(report: OutcomeAcceptanceReport): void {
+    this.lastOutcomeAcceptance = report;
+  }
+
+  public getLatestOutcomeAcceptance(): OutcomeAcceptanceReport | null {
+    return this.lastOutcomeAcceptance;
+  }
+
   public setLearningEnabled(enabled: boolean): GovernancePolicy {
     this.governance.setLearningEnabled(enabled);
     this.memory.setSetting('learning_enabled', String(Boolean(enabled)));
@@ -686,6 +697,7 @@ export class AdaptiveIntelligenceCoordinator {
       feasibilityStats: { ...this.feasibilityStats },
       intentStats: { ...this.intentStats },
       lastOfflineEval: this.improver.getLastOfflineEval(),
+      lastOutcomeAcceptance: this.lastOutcomeAcceptance,
     };
   }
 }

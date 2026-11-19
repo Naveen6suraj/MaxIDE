@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 /**
  * MaxIDE - Universal Intent Classification Engine
  * Intelligently classifies natural language requests into creative & technical domains:
@@ -28,6 +31,21 @@ export type UserIntent =
   | 'MULTI_CAPABILITY'
   | 'PROJECT_TASK';
 
+export interface TaskContract {
+  originalRequest: string;
+  interpretedObjective: string;
+  category: UserIntent;
+  targetPlatform: 'WEB_APP' | 'NATIVE_WINDOWS' | 'FULLSTACK_WEB' | 'BACKEND_SERVICE' | 'CLI_UTILITY';
+  existingProjectStatus: 'EMPTY_WORKSPACE' | 'EXISTING_WEB_PROJECT' | 'EXISTING_NATIVE_PROJECT' | 'EXISTING_BACKEND';
+  functionalRequirements: string[];
+  visualRequirements: string[];
+  technicalConstraints: string[];
+  expectedDeliverables: string[];
+  acceptanceCriteria: string[];
+  verificationRequirements: string[];
+  inferredDefaults: string[];
+}
+
 export interface IntentClassification {
   intent: UserIntent;
   confidence: number;
@@ -35,6 +53,7 @@ export interface IntentClassification {
   isExecution: boolean;      // Enters autonomous agent loop
   isBrowserTask: boolean;    // Direct URL / preview navigation
   isGitTask: boolean;        // Git operations
+  contract?: TaskContract;   // Structured task contract
   isMediaGen?: boolean;      // Media synthesis (video/image)
   mediaType?: 'image' | 'video';
   mediaDetails?: {
@@ -141,6 +160,7 @@ export class IntentClassifier {
     };
 
     const lowConfidenceFallback = trimmed.length < 4 && base.intent === 'PROJECT_TASK';
+    const contract = this.createContract(trimmed);
     return {
       ...base,
       confidence: lowConfidenceFallback ? 0.45 : base.confidence,
@@ -148,8 +168,141 @@ export class IntentClassifier {
       requiresFileModification,
       requiresBrowserExecution,
       requiresNativeExecution,
+      contract,
       workflowRoute: routeMap[base.intent] || 'PROJECT_FLOW',
       lowConfidenceFallback,
+    };
+  }
+
+  /**
+   * Generates a structured TaskContract defining objective, platform, functional & visual requirements,
+   * deliverables, acceptance criteria, and verification methods.
+   */
+  public static createContract(prompt: string, workspacePath?: string): TaskContract {
+    const trimmed = (prompt || '').trim();
+    const lower = trimmed.toLowerCase();
+    const base = this.classifyCore(trimmed);
+    const category = base.intent;
+
+    let targetPlatform: TaskContract['targetPlatform'] = 'WEB_APP';
+    if (category === 'NATIVE_APP_BUILD' || lower.includes('windows desktop') || lower.includes('native windows') || lower.includes('winforms')) {
+      targetPlatform = 'NATIVE_WINDOWS';
+    } else if (lower.includes('full-stack') || lower.includes('fullstack') || lower.includes('next.js')) {
+      targetPlatform = 'FULLSTACK_WEB';
+    } else if (lower.includes('api') || lower.includes('backend') || lower.includes('server')) {
+      targetPlatform = 'BACKEND_SERVICE';
+    } else if (lower.includes('cli') || lower.includes('command line')) {
+      targetPlatform = 'CLI_UTILITY';
+    }
+
+    let existingProjectStatus: TaskContract['existingProjectStatus'] = 'EMPTY_WORKSPACE';
+    try {
+      const ws = workspacePath || process.cwd();
+      if (typeof fs !== 'undefined' && fs.existsSync(ws)) {
+        if (fs.existsSync(path.join(ws, 'index.html')) || fs.existsSync(path.join(ws, 'package.json'))) {
+          existingProjectStatus = 'EXISTING_WEB_PROJECT';
+        } else if (fs.readdirSync(ws).some(f => f.endsWith('.cs') || f.endsWith('.sln') || f.endsWith('.csproj'))) {
+          existingProjectStatus = 'EXISTING_NATIVE_PROJECT';
+        }
+      }
+    } catch {}
+
+    const functionalRequirements: string[] = [];
+    const visualRequirements: string[] = [];
+    const technicalConstraints: string[] = [];
+    const expectedDeliverables: string[] = [];
+    const acceptanceCriteria: string[] = [];
+    const verificationRequirements: string[] = [];
+    const inferredDefaults: string[] = [];
+
+    const isCafeMenu = /\b(cafe|restaurant|menu|order|food|coffee|bakery|dining)\b/i.test(lower);
+    const isAttendance = /\b(attendance|student|tracker|analyzer|grades?|roster)\b/i.test(lower);
+
+    if (isCafeMenu) {
+      functionalRequirements.push(
+        'Specialty coffee and dining product catalog with realistic names, prices, tags, and descriptions',
+        'Interactive category filter tabs (Specialty Coffee, Teas, Bakery, Brunch, Lunch)',
+        'Dietary toggle filters (Vegetarian, Gluten-Free)',
+        'Real-time search query input with clear button',
+        'Cart state management: Add to Cart, Remove, Quantity Increment/Decrement',
+        'Accurate price arithmetic: Subtotal, Kitchen Tax (8%), Staff Tip selector, and Total amount',
+        'Dining mode selector (Dine-in, Takeaway, Delivery)',
+        'Customer order form with validation (Customer Name required)',
+        'Order confirmation receipt modal with ticket summary and Start New Order action'
+      );
+      visualRequirements.push(
+        'Artisanal cafe branding (Aroma & Oak Cafe / Gourmet Kitchen)',
+        'Hero section with culinary tagline and search bar',
+        'Grid of styled product cards with badge tags, icons, descriptions, and add buttons',
+        'Dedicated order sidebar with itemized line items and totals breakdown',
+        'Responsive layout (desktop 2-column, mobile single-column / drawer)',
+        'Accessible color contrast and clean typography'
+      );
+      expectedDeliverables.push('index.html', 'styles.css', 'app.js');
+      acceptanceCriteria.push(
+        'Application renders in browser without blank screen',
+        'All menu items have real prices and descriptions',
+        'Search and category filters correctly update visible items',
+        'Cart totals update dynamically on item addition and quantity changes',
+        'Order placement requires customer name and displays receipt modal',
+        'Zero fatal browser console errors'
+      );
+      verificationRequirements.push(
+        'Playwright headless browser navigation and DOM inspection',
+        'Desktop (1280x800) and Mobile (390x844) visual screenshot capture',
+        'Interactive control testing (search, category tabs, cart operations, order submission)'
+      );
+      inferredDefaults.push('Pre-populated with 16 realistic artisanal menu items across 5 categories', '8% kitchen sales tax', '10% default tip');
+    } else if (isAttendance) {
+      functionalRequirements.push(
+        'Student attendance records with student names, IDs, dates, and status (Present, Absent, Late, Excused)',
+        'Attendance percentage calculation per student and class aggregate',
+        'Filter by date range, course, or attendance status',
+        'Add/Edit student attendance record',
+        'Summary statistics cards'
+      );
+      visualRequirements.push(
+        'Clean dashboard layout with statistics summary cards',
+        'Data table with status badge indicators',
+        'Color-coded attendance rate indicators'
+      );
+      expectedDeliverables.push('index.html', 'styles.css', 'app.js');
+      acceptanceCriteria.push('Dashboard displays attendance statistics', 'Search and filters work', 'Records persist in localStorage');
+      verificationRequirements.push('Playwright browser inspection and interactive test');
+      inferredDefaults.push('Sample student cohort data provided', 'LocalStorage persistence');
+    } else if (targetPlatform === 'NATIVE_WINDOWS') {
+      functionalRequirements.push(
+        'Native Windows application window using Windows Forms or WPF',
+        'Clean GUI controls (buttons, textboxes, data grid, status bar)',
+        'Local data processing without external paid dependencies'
+      );
+      visualRequirements.push('Native Windows 11 desktop styling, proper control docking and padding');
+      technicalConstraints.push('Target .NET Framework C# compiler (csc.exe) or .NET 8 Desktop SDK', 'Valid C# 5 / 8 syntax');
+      expectedDeliverables.push('Program.cs', 'App.exe');
+      acceptanceCriteria.push('C# code compiles to App.exe without errors', 'App.exe launches native window');
+      verificationRequirements.push('SafeTerminal csc.exe compiler execution');
+    } else {
+      functionalRequirements.push('Complete, self-contained functional logic with interactive state and event listeners');
+      visualRequirements.push('Modern responsive styling, clear typography, proper spacing and contrast');
+      expectedDeliverables.push('index.html', 'styles.css', 'app.js');
+      acceptanceCriteria.push('App renders without blank screens or placeholders', 'Interactive controls work', 'Console clean');
+      verificationRequirements.push('Playwright browser verification');
+      inferredDefaults.push('Sensible modern defaults, responsive web application');
+    }
+
+    return {
+      originalRequest: trimmed,
+      interpretedObjective: `Deliver fully functional and visually verified ${category} on ${targetPlatform}`,
+      category,
+      targetPlatform,
+      existingProjectStatus,
+      functionalRequirements,
+      visualRequirements,
+      technicalConstraints,
+      expectedDeliverables,
+      acceptanceCriteria,
+      verificationRequirements,
+      inferredDefaults,
     };
   }
 
@@ -516,6 +669,16 @@ export class IntentClassifier {
     const hasExecutionAction = /\b(build\s+it\s+for\s+me|create\s+it\s+for\s+me|write\s+code\s+for\s+me|implement\s+in\s+my\s+workspace|make\s+the\s+files|add\s+to\s+my\s+project)\b/i.test(lower);
     if (hasExecutionAction) return false;
 
+    // Explicit Build directives are NEVER EXPLAIN! (e.g. "Build me a complete website using CSS")
+    const hasBuildDirective = /\b(build|create|make|scaffold|develop|implement)\s+(me\s+)?(a|an|the|new|complete)\b/i.test(lower) ||
+      (/\b(build|create|make)\b/i.test(lower) && /\b(website|web\s*app|application|app|project|site|page)\b/i.test(lower));
+    if (hasBuildDirective) return false;
+
+    // Explicit Refactor/Improve directives on existing project are NEVER EXPLAIN! (e.g. "Improve the CSS in my existing website")
+    const hasImproveDirective = /\b(improve|refactor|enhance|modify|update|clean\s+up)\b/i.test(lower) &&
+      /\b(existing|my)\s+(website|site|app|application|project|code|css|ui)\b/i.test(lower);
+    if (hasImproveDirective) return false;
+
     const explainPatterns = [
       /^(can\s+you\s+)?explain\b/i,
       /^what\s+is\b/i,
@@ -579,7 +742,7 @@ export class IntentClassifier {
   }
 
   private static isRefactor(lower: string): boolean {
-    return /\b(refactor|clean\s+up|restructure|modernize|reorganize)\b/i.test(lower);
+    return /\b(refactor|clean\s+up|restructure|modernize|reorganize|improve\s+(the\s+)?css|improve\s+(the\s+)?code|improve\s+my\s+existing|improve\s+existing)\b/i.test(lower);
   }
 
   private static isCodeEdit(lower: string): boolean {

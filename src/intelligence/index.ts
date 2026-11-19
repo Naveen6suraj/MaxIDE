@@ -9,3 +9,8 @@ export * from './ToolchainDetector.js';
 export * from './ReasoningDecisionEngine.js';
 export * from './SelfImprovementReviewer.js';
 export * from './ContinuousImprovementEngine.js';
+export * from './ProductSpecEngine.js';
+export * from './OutcomeDrivenPlanner.js';
+export * from './VisualQualityEngine.js';
+export * from './FunctionalQualityEngine.js';
+export * from './OutcomeAcceptanceEngine.js';

@@ -75,6 +75,7 @@ window.MaxIntelligenceCenter = (function () {
     renderPolicyVersions(data.policyVersions || [], data.lastOfflineEval);
     renderRollbackHistory(data.rollbackHistory || []);
     renderValidationAnalytics(data);
+    renderOutcomeQuality(data);
     renderPreferencesAndGovernance(data);
   }
 
@@ -810,6 +811,102 @@ window.MaxIntelligenceCenter = (function () {
     }
   }
 
+  // Section 13: Outcome Quality & Acceptance Engine (Mission 10)
+  function renderOutcomeQuality(data) {
+    const scEl = document.getElementById('ic-outcome-scorecard');
+    const rdEl = document.getElementById('ic-outcome-repair-directives');
+    const outcome = data.lastOutcomeAcceptance;
+
+    if (scEl) {
+      if (!outcome) {
+        scEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No outcome evaluations recorded yet. Run an autonomous task or click "Run 12-Criterion Benchmark".</div>';
+      } else {
+        const sc = outcome.scorecard || {};
+        const statusBadge = outcome.status === 'COMPLETED'
+          ? '<span class="badge badge-success">COMPLETED (100% Verified)</span>'
+          : outcome.status === 'PARTIALLY_COMPLETED'
+          ? '<span class="badge badge-warning">PARTIALLY COMPLETED</span>'
+          : outcome.status === 'BLOCKED'
+          ? '<span class="badge badge-error">BLOCKED</span>'
+          : '<span class="badge badge-error">FAILED</span>';
+
+        scEl.innerHTML = `
+          <div style="padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);font-size:12px;">
+            <div class="flex items-center justify-between" style="margin-bottom:8px;">
+              <span><strong>Status:</strong> ${statusBadge}</span>
+              <span class="mono" style="font-weight:700;color:var(--accent-primary);">Quality Score: ${Math.round((sc.compositeQualityScore || 0) * 100)}%</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mono" style="font-size:11px;color:var(--text-secondary);">
+              <div>Req Coverage: <strong>${Math.round((sc.requirementCoverage || 0) * 100)}%</strong></div>
+              <div>Functional: <strong>${Math.round((sc.functionalCompleteness || 0) * 100)}%</strong></div>
+              <div>Visual: <strong>${Math.round((sc.visualCompleteness || 0) * 100)}%</strong></div>
+              <div>Runtime Stability: <strong>${Math.round((sc.runtimeStability || 0) * 100)}%</strong></div>
+            </div>
+            ${outcome.rejectionReason ? `<div style="margin-top:6px;color:var(--color-warning);font-size:11px;"><em>${escapeHtml(outcome.rejectionReason)}</em></div>` : ''}
+          </div>
+        `;
+      }
+    }
+
+    if (rdEl) {
+      if (!outcome || !outcome.repairDirectives || outcome.repairDirectives.length === 0) {
+        rdEl.innerHTML = '<div style="color:var(--text-muted);">Zero active repair directives. All outcome criteria satisfied.</div>';
+      } else {
+        rdEl.innerHTML = outcome.repairDirectives.map((d) => `
+          <div style="padding:3px 0;color:var(--color-warning);">• ${escapeHtml(d)}</div>
+        `).join('');
+      }
+    }
+  }
+
+  async function runCafeBenchmark() {
+    const btn = document.getElementById('ic-btn-run-cafe-benchmark');
+    const resEl = document.getElementById('ic-cafe-benchmark-results');
+    const thumbsEl = document.getElementById('ic-outcome-visual-thumbnails');
+    if (btn) btn.disabled = true;
+    if (resEl) resEl.innerHTML = '<div style="font-size:11.5px;color:var(--accent-primary);">Executing 12-criterion Playwright benchmark against local server...</div>';
+
+    try {
+      const res = await api.post('/api/intelligence-center/run-cafe-benchmark', {});
+      if (resEl) {
+        const badge = res.success
+          ? '<span class="badge badge-success">100% PASS (12/12)</span>'
+          : `<span class="badge badge-warning">${res.passedCount}/${res.totalCount} PASSED</span>`;
+
+        resEl.innerHTML = `
+          <div style="margin-bottom:8px;" class="flex items-center justify-between">
+            <span><strong>Result:</strong> ${badge}</span>
+            <span class="mono" style="font-size:11px;color:var(--text-muted);">${res.totalDurationMs} ms</span>
+          </div>
+          <div style="max-height:160px;overflow-y:auto;font-size:11px;">
+            ${(res.results || []).map((r) => `
+              <div style="padding:3px 0;border-bottom:1px solid var(--border-subtle);" class="flex items-center justify-between">
+                <span>[${r.passed ? '✓' : '✗'}] ${escapeHtml(r.name)}</span>
+                <span class="mono" style="color:${r.passed ? 'var(--color-success)' : 'var(--color-error)'};">${r.passed ? 'PASS' : 'FAIL'}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      if (thumbsEl && (res.desktopScreenshot || res.mobileScreenshot)) {
+        thumbsEl.innerHTML = `
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">
+            <div>🖥️ <strong>Desktop (1280x800):</strong> <span class="mono">${escapeHtml(res.desktopScreenshot || '')}</span></div>
+            <div>📱 <strong>Mobile (390x844):</strong> <span class="mono">${escapeHtml(res.mobileScreenshot || '')}</span></div>
+          </div>
+        `;
+      }
+      toast(`Cafe Benchmark: ${res.passedCount}/${res.totalCount} passed.`, res.success ? 'success' : 'warning');
+      refreshDashboard();
+    } catch (err) {
+      if (resEl) resEl.innerHTML = `<div style="color:var(--color-error);font-size:11.5px;">Benchmark error: ${escapeHtml(err.message)}</div>`;
+      toast(`Benchmark failed: ${err.message}`, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   return {
     switchSubTab,
     setMemoryTab,
@@ -820,6 +917,7 @@ window.MaxIntelligenceCenter = (function () {
     submitFeedback,
     runOfflineEval,
     runMission8Benchmark,
+    runCafeBenchmark,
     rollbackPolicy,
     setBanditAlgorithm,
     updateGovernance,

@@ -49,7 +49,19 @@ import { VerificationEngine } from './verification/VerificationEngine.js';
 import { ClosedLoopTestEngine } from './verification/ClosedLoopTestEngine.js';
 
 import { ProjectMemoryManager } from './memory/ProjectMemoryManager.js';
-import { AdaptiveIntelligenceCoordinator, DecisionPlan, EvaluationRecord } from '../intelligence/index.js';
+import { 
+  AdaptiveIntelligenceCoordinator, 
+  DecisionPlan, 
+  EvaluationRecord,
+  ProductSpecEngine,
+  ProductSpec,
+  OutcomeDrivenPlanner,
+  OutcomePlan,
+  OutcomeAcceptanceEngine,
+  OutcomeAcceptanceReport,
+  VisualQualityEngine,
+} from '../intelligence/index.js';
+import { TaskContract } from './intent/IntentClassifier.js';
 
 export type TaskLifecycleState = 'IDLE' | 'OBSERVING' | 'PLANNING' | 'WAITING_FOR_MODEL' | 'INSPECTING' | 'EXECUTING' | 'TESTING' | 'DIAGNOSING' | 'REPAIRING' | 'VERIFYING' | 'COMPLETED' | 'PARTIALLY_COMPLETED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED';
 
@@ -131,6 +143,8 @@ export interface AgentTaskResult {
   strategyId?: string;
   decisionRationale?: string;
   evaluation?: EvaluationRecord;
+  outcomeAcceptance?: OutcomeAcceptanceReport;
+  productSpec?: ProductSpec;
 }
 
 export class AgentEngine {
@@ -514,6 +528,22 @@ export class AgentEngine {
     const toolFailureMessages: string[] = [];
     const taskIntent = IntentClassifier.classify(taskPrompt);
     const isExecutionTask = taskIntent.isExecution && !taskIntent.isConversational;
+    const rootPath = this.workspaceManager.getRootPath();
+
+    // Mission 10: Structured Task Contract, Product Spec & Outcome Plan
+    const taskContract = IntentClassifier.createContract(taskPrompt, rootPath);
+    let productSpec: ProductSpec | undefined;
+    let outcomePlan: OutcomePlan | undefined;
+    if (isExecutionTask) {
+      try {
+        productSpec = ProductSpecEngine.generateSpec(taskPrompt, taskContract, rootPath);
+        outcomePlan = OutcomeDrivenPlanner.planTask(taskPrompt, rootPath);
+        this.logActivity('thought', `[Outcome-Driven Plan] ${outcomePlan.rationale}`);
+      } catch (err: any) {
+        this.logActivity('thought', `[Outcome Spec] Inferred contract: ${taskContract.interpretedObjective}`);
+      }
+    }
+
     let decisionPlan: DecisionPlan | undefined;
     if (this.adaptiveIntelligence) {
       try {
@@ -572,6 +602,7 @@ export class AgentEngine {
       codebaseContext +
       (projectMemContext ? '\n\nPersistent Project Memory:\n' + projectMemContext : '') +
       (decisionPlan ? '\n\n' + decisionPlan.promptGuidance : '') +
+      (outcomePlan ? '\n\n' + outcomePlan.promptDecomposition.systemDirective + '\n\n' + outcomePlan.promptDecomposition.functionalRequirementsSummary : '') +
       '\n\nSolve the user request thoroughly using your registered tools. Methodically inspect, modify, run verification, diagnose any errors, and confirm completion.';
 
     const activeSessKey = options.sessionId || 'default';
@@ -982,8 +1013,6 @@ export class AgentEngine {
       }
     }
 
-    const rootPath = this.workspaceManager.getRootPath();
-
     // Dev server detection (running Vite/React/Node on custom port)
     if (!detectedOpenPreview) {
       const runningServers = this.devServerManager.getActiveServers(rootPath);
@@ -1098,29 +1127,57 @@ export class AgentEngine {
     const testsFailed = (this.currentEvidence.testsRun > 0 && !finalTestPassed) || (this.currentEvidence.testsRun > 0 && this.currentEvidence.testsPassed === 0);
     let taskActuallySucceeded = (physicalFilesExist || commandsRun.length > 0 || !isExecutionTask) && !testsFailed;
 
-    // Safety Net: If task was to build a web app, check if workspace index.html exists and is non-empty
-    if (!taskActuallySucceeded && isExecutionTask) {
-      const idxPath = path.join(rootPath, 'index.html');
-      if (fs.existsSync(idxPath) && fs.statSync(idxPath).size > 200) {
+    // Mission 10: Independent Outcome Acceptance Engine Evaluation
+    let outcomeAcceptance: OutcomeAcceptanceReport | undefined;
+    if (isExecutionTask && productSpec) {
+      this.setLifecycleState('VERIFYING');
+      outcomeAcceptance = OutcomeAcceptanceEngine.evaluateOutcome({
+        contract: taskContract,
+        spec: productSpec,
+        workspacePath: rootPath,
+        commandsRun,
+        buildError: testsFailed ? this.currentEvidence.diagnostics.join('\n') : undefined,
+      });
+
+      this.logActivity(
+        outcomeAcceptance.status === 'COMPLETED' ? 'thought' : 'error',
+        `[Outcome Acceptance] Status: ${outcomeAcceptance.status} (Composite Score: ${(outcomeAcceptance.scorecard.compositeQualityScore * 100).toFixed(0)}%, Functional: ${(outcomeAcceptance.scorecard.functionalCompleteness * 100).toFixed(0)}%, Visual: ${(outcomeAcceptance.scorecard.visualCompleteness * 100).toFixed(0)}%)`
+      );
+
+      if (this.adaptiveIntelligence) {
+        this.adaptiveIntelligence.recordOutcomeAcceptance(outcomeAcceptance);
+      }
+
+      // Outcome-Driven Success Invariant:
+      // A project is ONLY considered successful if outcome acceptance awards COMPLETED.
+      // If code was created but is a stub, non-functional, or incomplete, award PARTIALLY_COMPLETED or FAILED.
+      if (outcomeAcceptance.status === 'COMPLETED') {
         taskActuallySucceeded = true;
+      } else {
+        taskActuallySucceeded = false;
+      }
+    }
+
+    // Check if web preview is available
+    const idxPath = path.join(rootPath, 'index.html');
+    if (fs.existsSync(idxPath)) {
+      detectedOpenPreview = '/workspace-preview/index.html';
+      if (!filesTouched.includes('index.html')) {
         filesTouched.push('index.html');
-        detectedOpenPreview = '/workspace-preview/index.html';
       }
     }
 
     if (taskActuallySucceeded) {
-      this.setLifecycleState('VERIFYING');
       this.setLifecycleState('COMPLETED');
       this.projectMemory.recordTask(taskPrompt, 'COMPLETED', filesTouched);
     } else {
-      const partial = physicalFilesExist && testsFailed;
-      this.setLifecycleState(partial ? 'PARTIALLY_COMPLETED' : 'FAILED');
-      this.projectMemory.recordTask(taskPrompt, partial ? 'PARTIALLY_COMPLETED' : 'FAILED', filesTouched);
+      const isPartial = physicalFilesExist || (outcomeAcceptance && outcomeAcceptance.status === 'PARTIALLY_COMPLETED');
+      this.setLifecycleState(isPartial ? 'PARTIALLY_COMPLETED' : 'FAILED');
+      this.projectMemory.recordTask(taskPrompt, isPartial ? 'PARTIALLY_COMPLETED' : 'FAILED', filesTouched);
     }
 
     if (!finalAnswer || finalAnswer.trim() === 'Task completed successfully.' || ContentSanitizer.isToolEnvelope(finalAnswer)) {
       if (taskActuallySucceeded) {
-        // Build an articulate Antigravity-style summary
         let richSummary = `I have completed your task: **"${taskPrompt}"**.\n\n`;
         if (filesTouched.length > 0) {
           richSummary += `### 📁 Files Created & Modified:\n${Array.from(new Set(filesTouched)).map(f => `- [${f}](open:${f})`).join('\n')}\n\n`;
@@ -1128,12 +1185,20 @@ export class AgentEngine {
         if (commandsRun.length > 0) {
           richSummary += `### 💻 Verification Commands Executed:\n${commandsRun.map(c => `- \`${c}\``).join('\n')}\n\n`;
         }
+        if (outcomeAcceptance) {
+          richSummary += `### 🎯 Outcome Quality Scorecard:\n- Requirement Coverage: ${(outcomeAcceptance.scorecard.requirementCoverage * 100).toFixed(0)}%\n- Functional Completeness: ${(outcomeAcceptance.scorecard.functionalCompleteness * 100).toFixed(0)}%\n- Visual Completeness: ${(outcomeAcceptance.scorecard.visualCompleteness * 100).toFixed(0)}%\n- Composite Quality: ${(outcomeAcceptance.scorecard.compositeQualityScore * 100).toFixed(0)}%\n\n`;
+        }
         if (detectedOpenPreview) {
           richSummary += `### 🌐 Live Preview Ready:\nYour application is running live and has been opened in the Browser panel below.\n`;
         }
         finalAnswer = richSummary;
       } else {
-        finalAnswer = `TASK FAILED: Model attempted an invalid tool call and failed to create project files.`;
+        if (outcomeAcceptance && outcomeAcceptance.status !== 'COMPLETED') {
+          const failureList = outcomeAcceptance.repairDirectives.map((d) => `- ${d}`).join('\n');
+          finalAnswer = `### ⚠️ Task Incomplete (${outcomeAcceptance.status})\n\nProject output did not meet production acceptance criteria (Quality Score: ${(outcomeAcceptance.scorecard.compositeQualityScore * 100).toFixed(0)}%).\n\n**Missing or Incomplete Specifications:**\n${failureList || '- Incomplete implementation.'}\n\n${outcomeAcceptance.rationale ? `*Reason: ${outcomeAcceptance.rationale}*` : ''}`;
+        } else {
+          finalAnswer = `TASK FAILED: Model attempted an invalid tool call and failed to create project files.`;
+        }
       }
     }
 
@@ -1159,7 +1224,9 @@ export class AgentEngine {
           evidenceSource: (options as any).evidenceSource || 'USER_ENGINEERING_EXECUTION',
           toolFailureMessages,
           repairAttempts: closedLoopRepairAttempts,
-          requirementCoverageEstimate: taskActuallySucceeded ? (physicalFilesExist ? 0.92 : 0.78) : (physicalFilesExist ? 0.45 : 0.0),
+          requirementCoverageEstimate: outcomeAcceptance
+            ? outcomeAcceptance.scorecard.requirementCoverage
+            : (taskActuallySucceeded ? (physicalFilesExist ? 0.92 : 0.78) : (physicalFilesExist ? 0.45 : 0.0)),
           summary: (finalAnswer || '').slice(0, 320),
           evidence: {
             toolsExecutedCount: totalToolsExecuted,
@@ -1203,6 +1270,8 @@ export class AgentEngine {
       strategyId: decisionPlan?.selectedStrategy.id,
       decisionRationale: decisionPlan?.decisionRationale,
       evaluation: learnEvaluation,
+      outcomeAcceptance,
+      productSpec,
       error: taskActuallySucceeded ? undefined : 'No valid workspace files were created or modified.',
     };
   }

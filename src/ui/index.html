@@ -825,6 +825,36 @@
                 </div>
               </div>
 
+              <!-- 13. Outcome Quality & Acceptance Engine (Mission 10) -->
+              <div class="card flex-col gap-3">
+                <div class="flex items-center justify-between">
+                  <div class="cc-section-title">13. Outcome Quality &amp; Acceptance (Mission 10)</div>
+                  <button id="ic-btn-run-cafe-benchmark" class="btn btn-sm btn-primary" onclick="MaxIntelligenceCenter.runCafeBenchmark()">
+                    <span>☕ Run 12-Criterion Benchmark</span>
+                  </button>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Latest Task Acceptance Status &amp; Quality Scorecard</div>
+                  <div id="ic-outcome-scorecard">
+                    <div style="font-size:11.5px;color:var(--text-muted);">No outcome evaluations recorded yet. Run a task or click "Run 12-Criterion Benchmark".</div>
+                  </div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">12-Criterion Cafe Menu Benchmark Results</div>
+                  <div id="ic-cafe-benchmark-results"></div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Visual Acceptance Evidence</div>
+                  <div id="ic-outcome-visual-thumbnails" class="flex gap-2" style="overflow-x:auto;">
+                    <div style="font-size:11px;color:var(--text-muted);">Desktop (1280x800) and Mobile (390x844) preview evidence available under .maxide/visual_evidence/</div>
+                  </div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--border-subtle);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Self-Improvement &amp; Repair Directives</div>
+                  <div id="ic-outcome-repair-directives" style="max-height:130px;overflow-y:auto;font-size:11px;"></div>
+                </div>
+              </div>
+
               <!-- 9. User Preferences -->
               <div class="card flex-col gap-3">
                 <div class="cc-section-title">9. RL Policy &amp; Reward Preferences</div>

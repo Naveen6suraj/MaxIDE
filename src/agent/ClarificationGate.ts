@@ -296,6 +296,16 @@ export class ClarificationGate {
       return true;
     }
 
+    // Explicit technology or framework mentioned (e.g. "using CSS", "in React", "with HTML")
+    if (/\b(css|html|javascript|typescript|react|python|node|c#|tailwind|bootstrap)\b/i.test(lower)) {
+      return true;
+    }
+
+    // Broad build requests where reasonable defaults can be inferred (Mission 10 Phase 1 requirement)
+    if (/\b(build|create|make|develop)\s+(me\s+)?(a|an|the|new|complete)\s+(website|web\s*app|application|app|project|site|page)\b/i.test(lower)) {
+      return true;
+    }
+
     return false;
   }
 
@@ -312,8 +322,8 @@ export class ClarificationGate {
       return true;
     }
 
-    // General app, web app, or website requests without explicit specification
-    if (/\b(build|create|make|develop)\s+(?:me\s+)?(?:an?\s+)?(?:app|application|web\s+app|website|site|project|something)\b/i.test(lower)) {
+    // Isolated bare app/website requests with zero domain details (e.g. "build an app", "create a website")
+    if (/^(build|create|make|develop)\s+(?:me\s+)?(?:an?\s+)?(?:app|application|web\s+app|website|site|project|something)$/i.test(compact)) {
       return true;
     }
 

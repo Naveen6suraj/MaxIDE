@@ -26,7 +26,8 @@ import { PreviewManager } from './preview/PreviewManager.js';
 import { VerificationEngine } from '../agent/verification/VerificationEngine.js';
 import { MediaInspector } from '../agent/tools/MediaInspector.js';
 import { OllamaProvider } from '../ai/providers/ollama/OllamaProvider.js';
-import { ReasoningDecisionEngine } from '../intelligence/index.js';
+import { ReasoningDecisionEngine, ProductSpecEngine, OutcomeAcceptanceEngine } from '../intelligence/index.js';
+import { IntentClassifier } from '../agent/intent/IntentClassifier.js';
 import { runFullMission8Validation } from '../intelligence/validation/ValidationRunner.js';
 
 // Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
@@ -1785,6 +1786,33 @@ export function createApiRouter(
       if (!coord) return res.status(503).json({ error: 'Adaptive Intelligence Engine not initialized.' });
       await coord.ready();
       res.json(coord.memory.exportBackup());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Mission 10: Outcome Quality & Acceptance Routes ---
+  router.post('/intelligence-center/run-cafe-benchmark', async (req, res) => {
+    try {
+      const benchmarkModule = await import('../tests/mission10_cafe_benchmark.test.js');
+      const result = await benchmarkModule.runCafeBenchmark('http://localhost:3456/workspace-preview/index.html');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/intelligence-center/workspace-outcome', async (req, res) => {
+    try {
+      const rootPath = agentEngine.workspaceManager.getRootPath();
+      const taskContract = IntentClassifier.createContract('build me a project for cafe restaurant for menu and order', rootPath);
+      const productSpec = ProductSpecEngine.generateSpec('build me a project for cafe restaurant for menu and order', taskContract, rootPath);
+      const outcome = OutcomeAcceptanceEngine.evaluateOutcome({
+        contract: taskContract,
+        spec: productSpec,
+        workspacePath: rootPath,
+      });
+      res.json({ contract: taskContract, spec: productSpec, outcome });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
