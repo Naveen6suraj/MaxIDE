@@ -29,6 +29,7 @@ import { OllamaProvider } from '../ai/providers/ollama/OllamaProvider.js';
 import { ReasoningDecisionEngine, ProductSpecEngine, OutcomeAcceptanceEngine } from '../intelligence/index.js';
 import { IntentClassifier } from '../agent/intent/IntentClassifier.js';
 import { runFullMission8Validation } from '../intelligence/validation/ValidationRunner.js';
+import { ProjectControlCenter, OrchestrationCoordinator } from '../agent/orchestration/index.js';
 
 // Helper: Stream files supporting HTTP Range requests (206 Partial Content) for smooth video/audio playback
 function streamFileWithRange(req: any, res: any, absPath: string): void {
@@ -1817,6 +1818,18 @@ export function createApiRouter(
       res.status(500).json({ error: err.message });
     }
   });
+
+  // --- 18. APEX MISSION 11: AUTONOMOUS PRODUCT DEVELOPMENT & ORCHESTRATION ---
+  const orchestrationCoordinator = new OrchestrationCoordinator(
+    agentEngine.workspaceManager.getRootPath(),
+    agentEngine.adaptiveIntelligence,
+    agentEngine.safeTerminal
+  );
+  const projectControlCenter = new ProjectControlCenter(
+    agentEngine.workspaceManager.getRootPath(),
+    orchestrationCoordinator
+  );
+  router.use('/orchestration', projectControlCenter.createRouter());
 
   return router;
 }

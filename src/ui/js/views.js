@@ -69,7 +69,7 @@ window.MaxViews = (function () {
   // =========================================================================
   function switchMainView(view) {
     viewState.currentView = view;
-    ['home', 'workspace', 'mission', 'preview', 'intelligence', 'ai-control'].forEach((v) => {
+    ['home', 'workspace', 'mission', 'preview', 'intelligence', 'ai-control', 'orchestration'].forEach((v) => {
       const el = document.getElementById(`view-${v}`);
       if (el) el.classList.toggle('hidden', v !== view);
       const tab = document.getElementById(`nav-view-${v}`);
@@ -94,6 +94,8 @@ window.MaxViews = (function () {
       if (window.MaxStudioPanels) window.MaxStudioPanels.refreshProjectIntelligence();
     } else if (view === 'ai-control' && window.MaxStudioPanels) {
       window.MaxStudioPanels.refreshAIControlCenter();
+    } else if (view === 'orchestration') {
+      if (window.MaxProjectControl) window.MaxProjectControl.refreshDashboard();
     }
   }
 
