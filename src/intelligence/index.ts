@@ -14,3 +14,5 @@ export * from './OutcomeDrivenPlanner.js';
 export * from './VisualQualityEngine.js';
 export * from './FunctionalQualityEngine.js';
 export * from './OutcomeAcceptanceEngine.js';
+export * from './ProfessionalDesignEngine.js';
+export * from './AssetSelectionEngine.js';

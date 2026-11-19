@@ -1,0 +1,155 @@
+[
+  {
+    "id": "A",
+    "title": "Minimalist Audio Store (E-Commerce)",
+    "domain": "E_COMMERCE",
+    "request": "Build a modern e-commerce storefront for minimalist audio headphones with product cards, category filters, real-time search, shopping cart, quantity controls, and checkout modal.",
+    "workspacePath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\.audit_m10_2\\challenge_A_ecommerce",
+    "designDirection": "MINIMALIST",
+    "qualityTier": "PRODUCTION_READY",
+    "scorecard": {
+      "requirementCoverage": 1,
+      "functionalCompleteness": 0.85,
+      "visualCompleteness": 0.8,
+      "runtimeStability": 1,
+      "buildSuccess": 1,
+      "deliverableCorrectness": 1,
+      "compositeQualityScore": 0.92
+    },
+    "finalStatus": "COMPLETED",
+    "verifiedFeatures": [
+      "Catalog Rendering",
+      "Real-Time Search",
+      "Category Filter Tabs",
+      "Add to Cart",
+      "Quantity Adjustment",
+      "Remove Item",
+      "Cart Totals Calculation",
+      "Checkout Form Validation",
+      "Order Confirmation Modal"
+    ],
+    "missingFeatures": [],
+    "mathematicalBreakdown": "Composite (0.92) = [Coverage: 1 * 0.25 = 0.250] + [Functional: 0.85 * 0.25 = 0.212] + [Visual: 0.8 * 0.20 = 0.160] + [Runtime: 1 * 0.15 = 0.150] + [Build: 1 * 0.10 = 0.100] + [Deliverables: 1 * 0.05 = 0.050]",
+    "buildSuccess": true
+  },
+  {
+    "id": "B",
+    "title": "Focus AI Tracker (Productivity Dashboard)",
+    "domain": "AI_PRODUCTIVITY",
+    "request": "Build an AI productivity dashboard with task tracker, productivity metrics cards, settings modal, dark/light theme toggle, and localStorage data persistence.",
+    "workspacePath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\.audit_m10_2\\challenge_B_dashboard",
+    "designDirection": "DEVELOPER_DARK",
+    "qualityTier": "PRODUCTION_READY",
+    "scorecard": {
+      "requirementCoverage": 1,
+      "functionalCompleteness": 1,
+      "visualCompleteness": 0.8,
+      "runtimeStability": 1,
+      "buildSuccess": 1,
+      "deliverableCorrectness": 1,
+      "compositeQualityScore": 0.96
+    },
+    "finalStatus": "COMPLETED",
+    "verifiedFeatures": [
+      "Aggregate Metrics Calculation",
+      "Search Tasks",
+      "Category & Status Filter",
+      "Toggle Task Completion",
+      "Add New Task"
+    ],
+    "missingFeatures": [],
+    "mathematicalBreakdown": "Composite (0.96) = [Coverage: 1 * 0.25 = 0.250] + [Functional: 1 * 0.25 = 0.250] + [Visual: 0.8 * 0.20 = 0.160] + [Runtime: 1 * 0.15 = 0.150] + [Build: 1 * 0.10 = 0.100] + [Deliverables: 1 * 0.05 = 0.050]",
+    "buildSuccess": true
+  },
+  {
+    "id": "C",
+    "title": "Native Employee Directory (.exe)",
+    "domain": "NATIVE_WINDOWS",
+    "request": "Build a native Windows desktop employee directory application (.exe) with searchable DataGridView, add employee form, status bar, and C# WinForms executable compiled via csc.exe.",
+    "workspacePath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\.audit_m10_2\\challenge_C_native_win",
+    "designDirection": "NATIVE_WINDOWS_FLUENT",
+    "qualityTier": "PRODUCTION_READY",
+    "scorecard": {
+      "requirementCoverage": 1,
+      "functionalCompleteness": 1,
+      "visualCompleteness": 1,
+      "runtimeStability": 1,
+      "buildSuccess": 1,
+      "deliverableCorrectness": 1,
+      "compositeQualityScore": 1
+    },
+    "finalStatus": "COMPLETED",
+    "verifiedFeatures": [
+      "Native Window Launch",
+      "Button Click Action",
+      "Directory Search Filter",
+      "DataGridView Display"
+    ],
+    "missingFeatures": [],
+    "mathematicalBreakdown": "Composite (1) = [Coverage: 1 * 0.25 = 0.250] + [Functional: 1 * 0.25 = 0.250] + [Visual: 1 * 0.20 = 0.200] + [Runtime: 1 * 0.15 = 0.150] + [Build: 1 * 0.10 = 0.100] + [Deliverables: 1 * 0.05 = 0.050]",
+    "buildSuccess": true
+  },
+  {
+    "id": "D",
+    "title": "Full-Stack Note-Taking Application",
+    "domain": "FULLSTACK_WEB",
+    "request": "Build a full-stack note-taking application with an Express backend API supporting GET/POST/PUT/DELETE, SQLite database persistence, and an interactive frontend.",
+    "workspacePath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\.audit_m10_2\\challenge_D_fullstack",
+    "designDirection": "DEVELOPER_DARK",
+    "qualityTier": "PRODUCTION_READY",
+    "scorecard": {
+      "requirementCoverage": 1,
+      "functionalCompleteness": 1,
+      "visualCompleteness": 0.8,
+      "runtimeStability": 1,
+      "buildSuccess": 1,
+      "deliverableCorrectness": 1,
+      "compositeQualityScore": 0.96
+    },
+    "finalStatus": "COMPLETED",
+    "verifiedFeatures": [
+      "Fetch and Render Notes",
+      "Filter Notes by Title or Category",
+      "Create Note via POST API",
+      "Delete Note via DELETE API",
+      "Form Input Validation"
+    ],
+    "missingFeatures": [],
+    "mathematicalBreakdown": "Composite (0.96) = [Coverage: 1 * 0.25 = 0.250] + [Functional: 1 * 0.25 = 0.250] + [Visual: 0.8 * 0.20 = 0.160] + [Runtime: 1 * 0.15 = 0.150] + [Build: 1 * 0.10 = 0.100] + [Deliverables: 1 * 0.05 = 0.050]",
+    "buildSuccess": true
+  },
+  {
+    "id": "E",
+    "title": "Legacy POS Application (Existing Improvement)",
+    "domain": "GENERAL_WEB_APP",
+    "request": "Inspect this existing application, fix the broken cart arithmetic, improve the visual interface and responsive styling, and preserve all working features without migrating frameworks.",
+    "workspacePath": "C:\\Users\\navee\\.gemini\\antigravity\\scratch\\MaxIDE\\.audit_m10_2\\challenge_E_existing_improvement",
+    "designDirection": "MODERN_SAAS",
+    "qualityTier": "VISUALLY_COMPLETE",
+    "scorecard": {
+      "requirementCoverage": 0.33,
+      "functionalCompleteness": 0.85,
+      "visualCompleteness": 0.8,
+      "runtimeStability": 1,
+      "buildSuccess": 1,
+      "deliverableCorrectness": 1,
+      "compositeQualityScore": 0.76
+    },
+    "finalStatus": "PARTIALLY_COMPLETED",
+    "verifiedFeatures": [
+      "Add to Cart",
+      "Cart Totals Calculation",
+      "Order Confirmation Modal"
+    ],
+    "missingFeatures": [
+      "Catalog Rendering",
+      "Real-Time Search",
+      "Category Filter Tabs",
+      "Quantity Adjustment",
+      "Remove Item",
+      "Checkout Form Validation"
+    ],
+    "mathematicalBreakdown": "Composite (0.76) = [Coverage: 0.33 * 0.25 = 0.083] + [Functional: 0.85 * 0.25 = 0.212] + [Visual: 0.8 * 0.20 = 0.160] + [Runtime: 1 * 0.15 = 0.150] + [Build: 1 * 0.10 = 0.100] + [Deliverables: 1 * 0.05 = 0.050]",
+    "buildSuccess": true
+  }
+]
